@@ -21,9 +21,9 @@ class Settings(BaseSettings):
     debug: bool = False
 
     # asyncpg driver scheme. Host is `localhost` for local `uv run`
-    # development (postgres is exposed on 127.0.0.1:5433 by compose); the
+    # development (postgres is exposed on 127.0.0.1:5432 by compose); the
     # dockerized api overrides this with host `postgres` via DATABASE_URL.
-    database_url: str = "postgresql+asyncpg://relaywave:relaywave@localhost:5433/relaywave"
+    database_url: str = "postgresql+asyncpg://relaywave:relaywave@localhost:5432/relaywave"
 
 
 @lru_cache

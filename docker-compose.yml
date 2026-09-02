@@ -1,4 +1,4 @@
-# Phase 1: Postgres is now exposed on 127.0.0.1:5433 so the API can run
+# Phase 1: Postgres is now exposed on 127.0.0.1:5432 so the API can run
 # locally with `uv run uvicorn --reload` against the same database the
 # containers use. The API still does not talk to Redis (that wiring —
 # redis-py fan-out — lands in Phase 2 per docs/project-definition.md).
@@ -42,9 +42,8 @@ services:
     image: postgres:16-alpine
     ports:
       # Loopback-only host access for local `uv run` development. Never
-      # exposed to the external network. Mapped to host 5433 because the
-      # sibling `verbatim` project already owns 0.0.0.0:5432.
-      - "127.0.0.1:5433:5432"
+      # exposed to the external network.
+      - "127.0.0.1:5432:5432"
     environment:
       # Read from root .env (see .env.example). Because Postgres is now
       # host-reachable, set a real POSTGRES_PASSWORD instead of the old
