@@ -27,3 +27,14 @@ class Room(Base):
 
     memberships: Mapped[list[RoomMembership]] = relationship(back_populates="room")
     messages: Mapped[list[Message]] = relationship(back_populates="room")
+
+    @property
+    def member_count(self) -> int:
+        """Number of members, as `len(self.memberships)`.
+
+        Only safe when `memberships` has been eagerly loaded (via
+        `selectinload`), because lazy loading is impossible in async and would
+        raise `MissingGreenlet`. The `GET /rooms/{id}` endpoint is its only
+        consumer and loads the relationship explicitly.
+        """
+        return len(self.memberships)
