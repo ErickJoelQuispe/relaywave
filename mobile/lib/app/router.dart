@@ -8,6 +8,7 @@ import '../features/auth/presentation/auth_state.dart';
 import '../features/auth/presentation/login_screen.dart';
 import '../features/auth/presentation/register_screen.dart';
 import '../features/auth/presentation/splash_screen.dart';
+import '../features/chat/presentation/chat_screen.dart';
 import '../features/rooms/presentation/rooms_screen.dart';
 
 class GoRouterRefreshStream extends ChangeNotifier {
@@ -60,6 +61,14 @@ GoRouter buildRouter(AuthBloc authBloc) {
       GoRoute(
         path: '/',
         builder: (context, state) => const RoomsScreen(),
+      ),
+      GoRoute(
+        path: '/rooms/:id',
+        builder: (context, state) {
+          final roomId = int.parse(state.pathParameters['id']!);
+          final roomName = state.uri.queryParameters['name'] ?? 'Room';
+          return ChatScreen(roomId: roomId, roomName: roomName);
+        },
       ),
     ],
   );

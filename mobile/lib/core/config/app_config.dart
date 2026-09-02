@@ -6,4 +6,6 @@ abstract final class AppConfig {
     'API_BASE_URL',
     defaultValue: 'http://127.0.0.1:8000',
   );
+
+  static String get wsBaseUrl => apiBaseUrl.replaceFirst('http', 'ws');
 }
