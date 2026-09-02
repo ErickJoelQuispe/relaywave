@@ -8,6 +8,7 @@ os.environ.setdefault("JWT_SECRET_KEY", "relaywave-test-secret-not-for-prod")
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from httpx_ws.transport import ASGIWebSocketTransport
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
@@ -77,6 +78,27 @@ async def client(db):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
+    app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def ws_client(db):
+    """An httpx client wired for both REST and WebSocket calls.
+
+    Same `get_db` override as `client`. `ASGIWebSocketTransport` (from
+    `httpx-ws`) extends `httpx.ASGITransport` with `aconnect_ws` support, so
+    WebSocket traffic is driven in-process on the SAME event loop as the rest
+    of the async test suite — mixing in Starlette's sync `TestClient` here
+    would spin up a second loop and asyncpg would reject cross-loop use.
+    """
+
+    async def override_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    async with ASGIWebSocketTransport(app) as transport:
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c
     app.dependency_overrides.clear()
 
 
