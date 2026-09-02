@@ -1,5 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/network/api_exception.dart';
 import '../domain/auth_repository.dart';
 import 'auth_event.dart';
 import 'auth_state.dart';
@@ -38,7 +39,7 @@ final class AuthBloc extends Bloc<AuthEvent, AuthState> {
     try {
       final user = await _repository.login(event.email, event.password);
       emit(AuthAuthenticated(user));
-    } on AuthException catch (e) {
+    } on ApiException catch (e) {
       emit(AuthUnauthenticated(errorMessage: e.message));
     } catch (_) {
       emit(const AuthUnauthenticated(
@@ -59,7 +60,7 @@ final class AuthBloc extends Bloc<AuthEvent, AuthState> {
         event.password,
       );
       emit(AuthAuthenticated(user));
-    } on AuthException catch (e) {
+    } on ApiException catch (e) {
       emit(AuthUnauthenticated(errorMessage: e.message));
     } catch (_) {
       emit(const AuthUnauthenticated(

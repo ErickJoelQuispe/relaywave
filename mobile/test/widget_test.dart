@@ -3,6 +3,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:relaywave_mobile/app/app.dart';
 import 'package:relaywave_mobile/features/auth/domain/auth_repository.dart';
 import 'package:relaywave_mobile/features/auth/domain/user.dart';
+import 'package:relaywave_mobile/features/rooms/domain/room.dart';
+import 'package:relaywave_mobile/features/rooms/domain/room_repository.dart';
+
+class _FakeRoomRepository implements RoomRepository {
+  @override
+  Future<List<Room>> listRooms() => Future.value(const <Room>[]);
+
+  @override
+  Future<Room> createRoom(String name) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> joinRoom(int roomId) {
+    throw UnimplementedError();
+  }
+}
 
 class _FakeAuthRepository implements AuthRepository {
   @override
@@ -63,14 +80,17 @@ void main() {
     expect(find.text('Log in'), findsOneWidget);
   });
 
-  testWidgets('shows the home screen when authenticated', (
+  testWidgets('shows the rooms screen when authenticated', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
-      RelaywaveApp(authRepository: _FakeAuthenticatedRepository()),
+      RelaywaveApp(
+        authRepository: _FakeAuthenticatedRepository(),
+        roomRepository: _FakeRoomRepository(),
+      ),
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Hello, alice'), findsOneWidget);
+    expect(find.text('Rooms'), findsOneWidget);
   });
 }

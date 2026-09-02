@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 
+import '../../../core/network/api_exception.dart';
 import '../domain/auth_repository.dart';
 import '../domain/user.dart';
 import 'token_storage.dart';
@@ -28,7 +29,7 @@ final class AuthRepositoryImpl implements AuthRepository {
       );
       return await _fetchMe();
     } on DioException catch (e) {
-      throw _mapException(e);
+      throw ApiException(dioErrorMessage(e));
     }
   }
 
@@ -40,7 +41,7 @@ final class AuthRepositoryImpl implements AuthRepository {
         data: {'email': email, 'username': username, 'password': password},
       );
     } on DioException catch (e) {
-      throw _mapException(e);
+      throw ApiException(dioErrorMessage(e));
     }
     return login(email, password);
   }
@@ -100,18 +101,5 @@ final class AuthRepositoryImpl implements AuthRepository {
       await _tokenStorage.clear();
       return null;
     }
-  }
-
-  AuthException _mapException(DioException e) {
-    final data = e.response?.data;
-    if (data is Map && data['detail'] is String) {
-      return AuthException(data['detail'] as String);
-    }
-    final isNetworkError = e.response == null;
-    return AuthException(
-      isNetworkError
-          ? 'Unable to reach the server. Please try again.'
-          : 'Something went wrong. Please try again.',
-    );
   }
 }

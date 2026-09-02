@@ -9,9 +9,3 @@ abstract interface class AuthRepository {
 
   Future<User?> restoreSession();
 }
-
-final class AuthException implements Exception {
-  const AuthException(this.message);
-
-  final String message;
-}

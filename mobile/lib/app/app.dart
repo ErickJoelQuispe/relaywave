@@ -8,13 +8,17 @@ import '../features/auth/data/token_storage.dart';
 import '../features/auth/domain/auth_repository.dart';
 import '../features/auth/presentation/auth_bloc.dart';
 import '../features/auth/presentation/auth_event.dart';
+import '../features/rooms/data/room_repository_impl.dart';
+import '../features/rooms/domain/room_repository.dart';
+import '../features/rooms/presentation/rooms_bloc.dart';
 import 'router.dart';
 import 'theme.dart';
 
 class RelaywaveApp extends StatefulWidget {
-  const RelaywaveApp({super.key, this.authRepository});
+  const RelaywaveApp({super.key, this.authRepository, this.roomRepository});
 
   final AuthRepository? authRepository;
+  final RoomRepository? roomRepository;
 
   @override
   State<RelaywaveApp> createState() => _RelaywaveAppState();
@@ -22,25 +26,33 @@ class RelaywaveApp extends StatefulWidget {
 
 class _RelaywaveAppState extends State<RelaywaveApp> {
   late final TokenStorage _tokenStorage;
+  late final ApiClient _apiClient;
   late final AuthRepository _authRepository;
+  late final RoomRepository _roomRepository;
   late final AuthBloc _authBloc;
+  late final RoomBloc _roomBloc;
   late final GoRouter _router;
 
   @override
   void initState() {
     super.initState();
     _tokenStorage = SecureTokenStorage();
+    _apiClient = ApiClient(tokenStorage: _tokenStorage);
     _authRepository = widget.authRepository ??
         AuthRepositoryImpl(
-          dio: ApiClient(tokenStorage: _tokenStorage).dio,
+          dio: _apiClient.dio,
           tokenStorage: _tokenStorage,
         );
+    _roomRepository =
+        widget.roomRepository ?? RoomRepositoryImpl(dio: _apiClient.dio);
     _authBloc = AuthBloc(_authRepository)..add(const AuthCheckRequested());
+    _roomBloc = RoomBloc(_roomRepository);
     _router = buildRouter(_authBloc);
   }
 
   @override
   void dispose() {
+    _roomBloc.close();
     _authBloc.close();
     super.dispose();
   }
@@ -49,14 +61,20 @@ class _RelaywaveAppState extends State<RelaywaveApp> {
   Widget build(BuildContext context) {
     return RepositoryProvider<AuthRepository>.value(
       value: _authRepository,
-      child: BlocProvider<AuthBloc>.value(
-        value: _authBloc,
-        child: MaterialApp.router(
-          title: 'Relaywave',
-          theme: AppTheme.light,
-          darkTheme: AppTheme.dark,
-          themeMode: ThemeMode.system,
-          routerConfig: _router,
+      child: RepositoryProvider<RoomRepository>.value(
+        value: _roomRepository,
+        child: BlocProvider<AuthBloc>.value(
+          value: _authBloc,
+          child: BlocProvider<RoomBloc>.value(
+            value: _roomBloc,
+            child: MaterialApp.router(
+              title: 'Relaywave',
+              theme: AppTheme.light,
+              darkTheme: AppTheme.dark,
+              themeMode: ThemeMode.system,
+              routerConfig: _router,
+            ),
+          ),
         ),
       ),
     );
