@@ -6,6 +6,8 @@ ASGI with the `client` fixture, asserting status + body on every request.
 
 from uuid import uuid4
 
+from app.models.message import Message
+
 
 async def _register(client, email=None, username=None, password="supersecret123"):
     email = email or f"user-{uuid4()}@example.com"
@@ -139,3 +141,76 @@ async def test_join_already_member_returns_409(client):
 
     second = await client.post(f"/rooms/{room['id']}/join", headers=h2)
     assert second.status_code == 409
+
+
+async def test_list_messages_requires_auth(client):
+    resp = await client.get("/rooms/1/messages")
+    assert resp.status_code == 401
+
+
+async def test_list_messages_unknown_room_returns_404(client):
+    _, email, _, password = await _register(client)
+    headers = await _auth_headers(client, email, password)
+
+    resp = await client.get("/rooms/999999/messages", headers=headers)
+    assert resp.status_code == 404
+
+
+async def test_list_messages_requires_membership(client):
+    _, email1, _, password = await _register(client)
+    _, email2, _, _ = await _register(client)
+    h1 = await _auth_headers(client, email1, password)
+    h2 = await _auth_headers(client, email2, password)
+
+    room, _ = await _create_room(client, h1)  # user2 never joins
+
+    resp = await client.get(f"/rooms/{room['id']}/messages", headers=h2)
+    assert resp.status_code == 403
+
+
+async def test_list_messages_returns_history_after_id_ordered(client, db):
+    user, email, _, password = await _register(client)
+    headers = await _auth_headers(client, email, password)
+    room, _ = await _create_room(client, headers)
+
+    messages = [
+        Message(room_id=room["id"], sender_id=user["id"], content=f"msg-{i}")
+        for i in range(3)
+    ]
+    db.add_all(messages)
+    await db.commit()
+    for m in messages:
+        await db.refresh(m)
+
+    # Default `after=0` returns the full history, oldest first.
+    resp = await client.get(f"/rooms/{room['id']}/messages", headers=headers)
+    assert resp.status_code == 200
+    assert [m["content"] for m in resp.json()] == ["msg-0", "msg-1", "msg-2"]
+
+    # Reconciliation: only messages after a given id come back.
+    resp = await client.get(
+        f"/rooms/{room['id']}/messages",
+        params={"after": messages[0].id},
+        headers=headers,
+    )
+    assert [m["content"] for m in resp.json()] == ["msg-1", "msg-2"]
+
+
+async def test_list_messages_respects_limit(client, db):
+    user, email, _, password = await _register(client)
+    headers = await _auth_headers(client, email, password)
+    room, _ = await _create_room(client, headers)
+
+    db.add_all(
+        [
+            Message(room_id=room["id"], sender_id=user["id"], content=f"msg-{i}")
+            for i in range(5)
+        ]
+    )
+    await db.commit()
+
+    resp = await client.get(
+        f"/rooms/{room['id']}/messages", params={"limit": 2}, headers=headers
+    )
+    assert resp.status_code == 200
+    assert len(resp.json()) == 2

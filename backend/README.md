@@ -66,6 +66,21 @@ Create it once with:
 docker compose exec postgres createdb -U relaywave relaywave_test
 ```
 
+## Rooms
+
+- `POST /rooms` — create a room (creator is auto-joined as a member)
+- `GET /rooms` — list the rooms the caller is a member of
+- `GET /rooms/{room_id}` — room detail, including `member_count`
+- `POST /rooms/{room_id}/join` — join an existing room
+- `GET /rooms/{room_id}/messages?after={id}&limit={n}` — message history,
+  oldest first, capped at `limit` (default 100, max 500). Used for both the
+  initial history load (`after=0`) and WebSocket reconciliation after a
+  reconnect (`after=<last message id the client has>`), per ADR-002's
+  best-effort delivery model.
+
+All room endpoints require a Bearer access token and, except for create/list,
+membership in the target room (`403` otherwise).
+
 ## WebSocket protocol
 
 `WS /ws/rooms/{room_id}` — real-time chat, typing, and presence for a room.

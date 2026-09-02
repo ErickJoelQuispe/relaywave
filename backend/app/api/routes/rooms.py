@@ -1,4 +1,4 @@
-"""Room endpoints: create, list, detail, and join.
+"""Room endpoints: create, list, detail, join, and message history.
 
 Every route is protected by `get_current_user`, so a valid access token is
 required. Rooms and memberships were modeled back in the persistence slice;
@@ -7,7 +7,7 @@ this module is where they become a real REST surface.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,9 +15,11 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
+from app.models.message import Message
 from app.models.room import Room
 from app.models.room_membership import RoomMembership
 from app.models.user import User
+from app.schemas.message import MessageResponse
 from app.schemas.room import (
     RoomCreate,
     RoomDetailResponse,
@@ -144,3 +146,48 @@ async def join_room(
     # Re-read to populate `joined_at` (a server default) before returning.
     await db.refresh(membership)
     return membership
+
+
+@router.get("/{room_id}/messages", response_model=list[MessageResponse])
+async def list_messages(
+    room_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    after: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+) -> list[Message]:
+    """Return messages with `id > after`, oldest first, capped at `limit`.
+
+    This is the history-reconciliation endpoint from ADR-002: best-effort
+    WebSocket delivery means a client that was briefly disconnected can miss
+    broadcasts, so on reconnect it calls this with the highest message `id`
+    it already has and fills the gap. `after=0` (the default) doubles as
+    "give me the room's full history" for a client with nothing cached yet.
+    The `(room_id, id)` composite index from the persistence slice exists
+    specifically to make this query — filter by room, range-scan by id —
+    fast without a full table scan.
+    """
+    room = await db.get(Room, room_id)
+    if room is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Room not found"
+        )
+
+    is_member = await db.scalar(
+        select(RoomMembership).where(
+            RoomMembership.user_id == user.id,
+            RoomMembership.room_id == room_id,
+        )
+    )
+    if is_member is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this room"
+        )
+
+    result = await db.execute(
+        select(Message)
+        .where(Message.room_id == room_id, Message.id > after)
+        .order_by(Message.id)
+        .limit(limit)
+    )
+    return list(result.scalars().all())

@@ -9,7 +9,7 @@ Server -> client frames are plain response models sent as `model_dump_json()`.
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AuthEnvelope(BaseModel):
@@ -69,3 +69,15 @@ class PresenceBroadcast(BaseModel):
     room_id: int
     event: Literal["join", "leave"]
     user_id: int
+
+
+class MessageResponse(BaseModel):
+    """REST response for a persisted message (history reconciliation)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    room_id: int
+    sender_id: int
+    content: str
+    created_at: datetime
