@@ -1,8 +1,7 @@
-# Phase 0 goal: prove the container orchestration and health-check wiring
-# work end to end (three containers start, become healthy, and can reach
-# each other by service name). The API does NOT talk to Postgres or Redis
-# yet — that wiring (SQLAlchemy, Alembic, redis-py) is introduced in later
-# phases per docs/project-definition.md.
+# Phase 1: Postgres is now exposed on 127.0.0.1:5433 so the API can run
+# locally with `uv run uvicorn --reload` against the same database the
+# containers use. The API still does not talk to Redis (that wiring —
+# redis-py fan-out — lands in Phase 2 per docs/project-definition.md).
 
 services:
   api:
@@ -15,6 +14,9 @@ services:
       APP_NAME: relaywave-backend
       ENVIRONMENT: local
       DEBUG: "true"
+      # In-container URL: postgres is reached by its service name on the
+      # Compose network. asyncpg driver scheme.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-relaywave}:${POSTGRES_PASSWORD:-relaywave}@postgres:5432/${POSTGRES_DB:-relaywave}
     depends_on:
       postgres:
         condition: service_healthy
@@ -38,9 +40,15 @@ services:
 
   postgres:
     image: postgres:16-alpine
+    ports:
+      # Loopback-only host access for local `uv run` development. Never
+      # exposed to the external network. Mapped to host 5433 because the
+      # sibling `verbatim` project already owns 0.0.0.0:5432.
+      - "127.0.0.1:5433:5432"
     environment:
-      # Dev-only placeholder credentials — never used outside local Compose.
-      # Read from root .env (see .env.example) with local fallbacks.
+      # Read from root .env (see .env.example). Because Postgres is now
+      # host-reachable, set a real POSTGRES_PASSWORD instead of the old
+      # relaywave/relaywave dev default.
       POSTGRES_USER: ${POSTGRES_USER:-relaywave}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-relaywave}
       POSTGRES_DB: ${POSTGRES_DB:-relaywave}
