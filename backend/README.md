@@ -50,3 +50,18 @@ generate a migration and apply it:
 uv run alembic revision --autogenerate -m "describe change"
 uv run alembic upgrade head
 ```
+
+## Authentication
+
+- `POST /auth/register` — create an account (password hashed with Argon2id)
+- `POST /auth/login` — exchange credentials for an access + refresh token pair
+- `POST /auth/refresh` — rotate a refresh token for a new pair
+- `POST /auth/logout` — revoke a refresh token (idempotent)
+- `GET /auth/me` — return the authenticated user (requires a Bearer access token)
+
+The integration test suite runs against a dedicated `relaywave_test` database.
+Create it once with:
+
+```bash
+docker compose exec postgres createdb -U relaywave relaywave_test
+```

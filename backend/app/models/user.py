@@ -10,6 +10,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.message import Message
+    from app.models.refresh_token import RefreshToken
     from app.models.room_membership import RoomMembership
 
 
@@ -26,3 +27,8 @@ class User(Base):
 
     memberships: Mapped[list[RoomMembership]] = relationship(back_populates="user")
     messages: Mapped[list[Message]] = relationship(back_populates="sender")
+    # `delete-orphan` ensures deleting a User (via cascade) also removes their
+    # refresh-token rows that are no longer reachable from the relationship.
+    refresh_tokens: Mapped[list[RefreshToken]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )

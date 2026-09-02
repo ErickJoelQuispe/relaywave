@@ -6,8 +6,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Application settings, loaded from environment variables and `.env`.
 
-    Database settings land here in Phase 1. Redis and JWT settings are
-    added in later phases as those dependencies are introduced.
+    Database settings land here in Phase 1; JWT settings in the auth phase.
+    Redis settings are added in later phases as that dependency is introduced.
     """
 
     model_config = SettingsConfigDict(
@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     # development (postgres is exposed on 127.0.0.1:5432 by compose); the
     # dockerized api overrides this with host `postgres` via DATABASE_URL.
     database_url: str = "postgresql+asyncpg://relaywave:relaywave@localhost:5432/relaywave"
+
+    # Auth (JWT). `jwt_secret_key` is intentionally REQUIRED (no default):
+    # a hardcoded signing key would silently ship a broken security model.
+    # It must come from the environment or `backend/.env` (see `.env.example`).
+    jwt_secret_key: str
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 15
+    refresh_token_expire_days: int = 7
 
 
 @lru_cache
