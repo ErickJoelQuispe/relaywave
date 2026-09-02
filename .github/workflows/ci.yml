@@ -1,0 +1,72 @@
+name: CI
+
+# Phase 0 per ADR-003: verification-only pipeline. No deployment, no image
+# push — this only proves the code lints, tests pass, and the backend
+# container still builds. Kubernetes rollouts stay manual until Phase 4.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # astral-sh/setup-uv also bundles GitHub Actions cache support for
+      # uv's resolution/download cache, keyed on uv.lock — this avoids
+      # re-downloading the same wheels on every run.
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Test (pytest)
+        run: uv run pytest
+
+  mobile:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Build only — no push/registry auth. Phase 0 just proves the
+      # container still compiles; deployment stays manual until Phase 4.
+      - name: Build backend image
+        run: docker build ./backend

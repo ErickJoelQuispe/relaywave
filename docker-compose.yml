@@ -1,0 +1,74 @@
+# Phase 0 goal: prove the container orchestration and health-check wiring
+# work end to end (three containers start, become healthy, and can reach
+# each other by service name). The API does NOT talk to Postgres or Redis
+# yet — that wiring (SQLAlchemy, Alembic, redis-py) is introduced in later
+# phases per docs/project-definition.md.
+
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      APP_NAME: relaywave-backend
+      ENVIRONMENT: local
+      DEBUG: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # python:3.12-slim has no curl; use the stdlib instead.
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - relaywave
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      # Dev-only placeholder credentials — never used outside local Compose.
+      # Read from root .env (see .env.example) with local fallbacks.
+      POSTGRES_USER: ${POSTGRES_USER:-relaywave}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-relaywave}
+      POSTGRES_DB: ${POSTGRES_DB:-relaywave}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-relaywave} -d ${POSTGRES_DB:-relaywave}"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - relaywave
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - relaywave
+
+volumes:
+  postgres_data:
+
+networks:
+  relaywave:
+    driver: bridge
