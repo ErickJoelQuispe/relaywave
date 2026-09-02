@@ -75,7 +75,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     autofillHints: const [AutofillHints.email],
                     decoration: const InputDecoration(
                       labelText: 'Email',
-                      border: OutlineInputBorder(),
                     ),
                     validator: (value) {
                       final email = value?.trim() ?? '';
@@ -93,7 +92,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     controller: _usernameController,
                     decoration: const InputDecoration(
                       labelText: 'Username',
-                      border: OutlineInputBorder(),
                     ),
                     validator: (value) {
                       final username = value?.trim() ?? '';
@@ -112,7 +110,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     obscureText: true,
                     decoration: const InputDecoration(
                       labelText: 'Password',
-                      border: OutlineInputBorder(),
                     ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
@@ -130,7 +127,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     obscureText: true,
                     decoration: const InputDecoration(
                       labelText: 'Confirm password',
-                      border: OutlineInputBorder(),
                     ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
