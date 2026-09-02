@@ -1,15 +1,66 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../features/auth/presentation/auth_bloc.dart';
+import '../features/auth/presentation/auth_state.dart';
+import '../features/auth/presentation/login_screen.dart';
+import '../features/auth/presentation/register_screen.dart';
+import '../features/auth/presentation/splash_screen.dart';
 import '../features/home/presentation/home_screen.dart';
 
-final GoRouter router = GoRouter(
-  initialLocation: '/',
-  // Auth gating lands in Slice S1.
-  redirect: (context, state) => null,
-  routes: [
-    GoRoute(
-      path: '/',
-      builder: (context, state) => const HomeScreen(),
-    ),
-  ],
-);
+class GoRouterRefreshStream extends ChangeNotifier {
+  GoRouterRefreshStream(Stream<dynamic> stream) {
+    notifyListeners();
+    _subscription = stream.asBroadcastStream().listen((_) => notifyListeners());
+  }
+
+  late final StreamSubscription<dynamic> _subscription;
+
+  @override
+  void dispose() {
+    _subscription.cancel();
+    super.dispose();
+  }
+}
+
+GoRouter buildRouter(AuthBloc authBloc) {
+  return GoRouter(
+    initialLocation: '/',
+    refreshListenable: GoRouterRefreshStream(authBloc.stream),
+    redirect: (context, state) {
+      final location = state.matchedLocation;
+      return switch (authBloc.state) {
+        AuthUnknown() => location == '/splash' ? null : '/splash',
+        AuthLoading() => null,
+        AuthAuthenticated() => switch (location) {
+            '/login' || '/register' || '/splash' => '/',
+            _ => null,
+          },
+        AuthUnauthenticated() => switch (location) {
+            '/login' || '/register' => null,
+            _ => '/login',
+          },
+      };
+    },
+    routes: [
+      GoRoute(
+        path: '/splash',
+        builder: (context, state) => const SplashScreen(),
+      ),
+      GoRoute(
+        path: '/login',
+        builder: (context, state) => const LoginScreen(),
+      ),
+      GoRoute(
+        path: '/register',
+        builder: (context, state) => const RegisterScreen(),
+      ),
+      GoRoute(
+        path: '/',
+        builder: (context, state) => const HomeScreen(),
+      ),
+    ],
+  );
+}
