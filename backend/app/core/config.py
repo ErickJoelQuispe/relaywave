@@ -6,9 +6,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Application settings, loaded from environment variables and `.env`.
 
-    Only app-identity settings live here for now. Database, Redis, and JWT
-    settings are added in later phases as those dependencies are
-    introduced (see docs/project-definition.md, Phase 1+).
+    Database settings land here in Phase 1. Redis and JWT settings are
+    added in later phases as those dependencies are introduced.
     """
 
     model_config = SettingsConfigDict(
@@ -20,6 +19,11 @@ class Settings(BaseSettings):
     app_name: str = "relaywave-backend"
     environment: str = "local"
     debug: bool = False
+
+    # asyncpg driver scheme. Host is `localhost` for local `uv run`
+    # development (postgres is exposed on 127.0.0.1:5433 by compose); the
+    # dockerized api overrides this with host `postgres` via DATABASE_URL.
+    database_url: str = "postgresql+asyncpg://relaywave:relaywave@localhost:5433/relaywave"
 
 
 @lru_cache

@@ -40,3 +40,13 @@ uv run pytest
 ```bash
 uv run ruff check .
 ```
+
+## Migrations
+
+Database schema changes are managed with Alembic. After changing a model,
+generate a migration and apply it:
+
+```bash
+uv run alembic revision --autogenerate -m "describe change"
+uv run alembic upgrade head
+```
