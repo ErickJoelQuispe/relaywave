@@ -59,3 +59,7 @@ abstract final class AppRadius {
   static const double lg = 16;  // modals / sheets
   static const double pill = 999;
 }
+
+abstract final class AppBreakpoints {
+  static const double desktop = 840; // Material "expanded" breakpoint
+}

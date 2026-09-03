@@ -9,7 +9,8 @@ import '../features/auth/presentation/login_screen.dart';
 import '../features/auth/presentation/register_screen.dart';
 import '../features/auth/presentation/splash_screen.dart';
 import '../features/chat/presentation/chat_screen.dart';
-import '../features/rooms/presentation/rooms_screen.dart';
+import '../features/rooms/presentation/rooms_pane.dart';
+import 'responsive_shell.dart';
 
 class GoRouterRefreshStream extends ChangeNotifier {
   GoRouterRefreshStream(Stream<dynamic> stream) {
@@ -58,17 +59,23 @@ GoRouter buildRouter(AuthBloc authBloc) {
         path: '/register',
         builder: (context, state) => const RegisterScreen(),
       ),
-      GoRoute(
-        path: '/',
-        builder: (context, state) => const RoomsScreen(),
-      ),
-      GoRoute(
-        path: '/rooms/:id',
-        builder: (context, state) {
-          final roomId = int.parse(state.pathParameters['id']!);
-          final roomName = state.uri.queryParameters['name'] ?? 'Room';
-          return ChatScreen(roomId: roomId, roomName: roomName);
-        },
+      ShellRoute(
+        builder: (context, state, child) =>
+            ResponsiveShell(state: state, child: child),
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (context, state) => const RoomsPane(),
+          ),
+          GoRoute(
+            path: '/rooms/:id',
+            builder: (context, state) {
+              final roomId = int.parse(state.pathParameters['id']!);
+              final roomName = state.uri.queryParameters['name'] ?? 'Room';
+              return ChatScreen(roomId: roomId, roomName: roomName);
+            },
+          ),
+        ],
       ),
     ],
   );

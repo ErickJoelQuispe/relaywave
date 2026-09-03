@@ -8,14 +8,14 @@ import 'rooms_bloc.dart';
 import 'rooms_event.dart';
 import 'rooms_state.dart';
 
-class RoomsScreen extends StatefulWidget {
-  const RoomsScreen({super.key});
+class RoomsPane extends StatefulWidget {
+  const RoomsPane({super.key});
 
   @override
-  State<RoomsScreen> createState() => _RoomsScreenState();
+  State<RoomsPane> createState() => _RoomsPaneState();
 }
 
-class _RoomsScreenState extends State<RoomsScreen> {
+class _RoomsPaneState extends State<RoomsPane> {
   @override
   void initState() {
     super.initState();

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:relaywave_mobile/app/app.dart';
@@ -288,5 +289,23 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
 
     expect(chatRepository.connectCount, 2);
+  });
+
+  testWidgets('shows master and detail panes on wide screens', (
+    WidgetTester tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      RelaywaveApp(
+        authRepository: _FakeAuthenticatedRepository(),
+        roomRepository: _FakeRoomRepository(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('No rooms yet. Create or join one.'), findsOneWidget);
+    expect(find.text('Select a room to start chatting'), findsOneWidget);
   });
 }
