@@ -6,11 +6,19 @@ over ASGI — but through `ws_client` (httpx-ws) instead of `client`, since
 without leaving the test's asyncio event loop.
 """
 
+import asyncio
 import json
 from uuid import uuid4
 
 import pytest
+import redis.asyncio as redis
 from httpx_ws import WebSocketDisconnect, aconnect_ws
+from redis.exceptions import ConnectionError as RedisConnectionError
+
+from app.core.config import get_settings
+
+_SUBSCRIBE_SETTLE_SECONDS = 0.1
+_MESSAGE_TIMEOUT_SECONDS = 2.0
 
 
 async def _register(client, email=None, username=None, password="supersecret123"):
@@ -41,6 +49,14 @@ async def _create_room(client, headers, name=None):
 
 def _ws_url(room_id):
     return f"ws://test/ws/rooms/{room_id}"
+
+
+async def _next_channel_message(pubsub):
+    """Block until `pubsub` has a real (non-subscribe-confirmation) message."""
+    while True:
+        message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=None)
+        if message is not None:
+            return message["data"]
 
 
 async def test_ws_requires_auth_as_first_frame(ws_client):
@@ -154,3 +170,188 @@ async def test_ws_message_typing_and_presence(ws_client):
             "event": "leave",
             "user_id": user2["id"],
         }
+
+
+async def test_ws_message_publishes_through_redis_and_echoes_to_sender(ws_client):
+    """Prove a chat message actually crosses the Redis boundary, not just a
+    local shortcut that happens to look the same.
+
+    `test_ws_message_typing_and_presence` already shows the sender gets its
+    own message back, but that alone doesn't rule out a stray direct
+    `manager.broadcast()` call sitting next to `broadcaster.publish()` (the
+    exact regression Phase 2 slice 2 is meant to catch). This test adds an
+    independent raw Redis subscriber on `room:{room_id}` — a client with no
+    connection to `RoomBroadcaster` at all — and asserts it sees the exact
+    publish. Only `broadcaster.publish()` reaching real Redis can satisfy
+    that; a local-only code path would leave this subscriber silent.
+
+    The raw subscriber is attached before the WebSocket connects, so it also
+    observes the connect-triggered "join" presence broadcast on the same
+    channel (presence crosses Redis too, as of Phase 2 slice 3) — that event
+    is drained first so it doesn't get mistaken for the chat message.
+    """
+    raw_client = redis.from_url(get_settings().redis_url, decode_responses=True)
+    try:
+        await raw_client.ping()
+    except (RedisConnectionError, OSError):
+        await raw_client.aclose()
+        pytest.skip("Redis not reachable — start it with `docker compose up -d redis`")
+
+    _, email, _, password = await _register(ws_client)
+    headers = await _auth_headers(ws_client, email, password)
+    room, _ = await _create_room(ws_client, headers)
+    room_id = room["id"]
+    token = headers["Authorization"].removeprefix("Bearer ")
+
+    raw_pubsub = raw_client.pubsub()
+    await raw_pubsub.subscribe(f"room:{room_id}")
+    try:
+        async with aconnect_ws(_ws_url(room_id), client=ws_client) as ws:
+            await ws.send_text(json.dumps({"type": "auth", "token": token}))
+            await ws.receive_text()  # own "join" presence broadcast, drained
+
+            # The raw subscriber sees the same "join" event on the channel;
+            # drain it too before waiting for the chat message.
+            join_data = await asyncio.wait_for(
+                _next_channel_message(raw_pubsub), timeout=_MESSAGE_TIMEOUT_SECONDS
+            )
+            assert json.loads(join_data)["type"] == "presence"
+
+            # Give both the app's RoomBroadcaster subscription and this raw
+            # subscriber a moment to register with Redis before publishing.
+            await asyncio.sleep(_SUBSCRIBE_SETTLE_SECONDS)
+            await ws.send_text(
+                json.dumps({"type": "message", "content": "cross-pod"})
+            )
+
+            raw_data = await asyncio.wait_for(
+                _next_channel_message(raw_pubsub), timeout=_MESSAGE_TIMEOUT_SECONDS
+            )
+            published = json.loads(raw_data)
+            assert published["type"] == "message"
+            assert published["content"] == "cross-pod"
+
+            # The sender's own client receives the identical payload back —
+            # the self-echo — via the same Redis round trip the raw
+            # subscriber just observed, not a local delivery shortcut.
+            echoed = json.loads(await ws.receive_text())
+            assert echoed == published
+    finally:
+        await raw_pubsub.unsubscribe(f"room:{room_id}")
+        await raw_pubsub.aclose()
+        await raw_client.aclose()
+
+
+async def test_ws_typing_and_presence_publish_through_redis(ws_client):
+    """Prove typing and presence broadcasts cross the Redis boundary too,
+    not just chat messages.
+
+    Mirrors `test_ws_message_publishes_through_redis_and_echoes_to_sender`:
+    an independent raw Redis subscriber, with no connection to
+    `RoomBroadcaster` at all, observes the exact JSON payload for both a
+    "join" presence event and a "typing" event. That rules out a stray
+    direct `manager.broadcast()` call sitting next to `broadcaster.publish()`
+    for either one (the regression this slice's routing change is meant to
+    avoid).
+    """
+    raw_client = redis.from_url(get_settings().redis_url, decode_responses=True)
+    try:
+        await raw_client.ping()
+    except (RedisConnectionError, OSError):
+        await raw_client.aclose()
+        pytest.skip("Redis not reachable — start it with `docker compose up -d redis`")
+
+    user, email, _, password = await _register(ws_client)
+    headers = await _auth_headers(ws_client, email, password)
+    room, _ = await _create_room(ws_client, headers)
+    room_id = room["id"]
+    token = headers["Authorization"].removeprefix("Bearer ")
+
+    raw_pubsub = raw_client.pubsub()
+    await raw_pubsub.subscribe(f"room:{room_id}")
+    try:
+        async with aconnect_ws(_ws_url(room_id), client=ws_client) as ws:
+            await ws.send_text(json.dumps({"type": "auth", "token": token}))
+            await ws.receive_text()  # own "join" presence broadcast, drained
+
+            join_data = await asyncio.wait_for(
+                _next_channel_message(raw_pubsub), timeout=_MESSAGE_TIMEOUT_SECONDS
+            )
+            assert json.loads(join_data) == {
+                "type": "presence",
+                "room_id": room_id,
+                "event": "join",
+                "user_id": user["id"],
+            }
+
+            await asyncio.sleep(_SUBSCRIBE_SETTLE_SECONDS)
+            await ws.send_text(json.dumps({"type": "typing"}))
+
+            typing_data = await asyncio.wait_for(
+                _next_channel_message(raw_pubsub), timeout=_MESSAGE_TIMEOUT_SECONDS
+            )
+            assert json.loads(typing_data) == {
+                "type": "typing",
+                "room_id": room_id,
+                "user_id": user["id"],
+            }
+    finally:
+        await raw_pubsub.unsubscribe(f"room:{room_id}")
+        await raw_pubsub.aclose()
+        await raw_client.aclose()
+
+
+async def test_ws_typing_excludes_only_the_sender(ws_client):
+    """A user must never see their own typing indicator, while everyone
+    else in the room must see it.
+
+    This is the exact regression `exclude_user_id` exists to prevent: once
+    typing round-trips through Redis, the callback that delivers it locally
+    (`_on_redis_message`) only has the `user_id` embedded in the payload —
+    the original `WebSocket` object that sent it lives on whichever pod
+    handled that connection and is not available here. A naive
+    unconditional `manager.broadcast()` on the Redis-delivered payload
+    would echo the typing indicator back to its own sender.
+    """
+    user1, email1, _, password = await _register(ws_client)
+    user2, email2, _, _ = await _register(ws_client)
+    h1 = await _auth_headers(ws_client, email1, password)
+    h2 = await _auth_headers(ws_client, email2, password)
+    token1 = h1["Authorization"].removeprefix("Bearer ")
+    token2 = h2["Authorization"].removeprefix("Bearer ")
+
+    room, _ = await _create_room(ws_client, h1)
+    room_id = room["id"]
+    assert (
+        await ws_client.post(f"/rooms/{room_id}/join", headers=h2)
+    ).status_code == 201
+
+    async with aconnect_ws(_ws_url(room_id), client=ws_client) as ws_a:
+        await ws_a.send_text(json.dumps({"type": "auth", "token": token1}))
+        await ws_a.receive_text()  # own "join" presence broadcast, drained
+
+        async with aconnect_ws(_ws_url(room_id), client=ws_client) as ws_b:
+            await ws_b.send_text(json.dumps({"type": "auth", "token": token2}))
+            # B's join broadcast reaches everyone now in the room.
+            await ws_a.receive_text()
+            await ws_b.receive_text()
+
+            # A sends typing: only B should receive it.
+            await ws_a.send_text(json.dumps({"type": "typing"}))
+            typing_b = json.loads(await ws_b.receive_text())
+            assert typing_b == {
+                "type": "typing",
+                "room_id": room_id,
+                "user_id": user1["id"],
+            }
+
+            # Prove A truly never got its own typing indicator back: the
+            # very next frame A receives is B's typing signal below, not a
+            # stray echo of A's own typing sitting ahead of it in the queue.
+            await ws_b.send_text(json.dumps({"type": "typing"}))
+            typing_a = json.loads(await ws_a.receive_text())
+            assert typing_a == {
+                "type": "typing",
+                "room_id": room_id,
+                "user_id": user2["id"],
+            }
