@@ -1,23 +1,33 @@
 import 'dart:async';
 
+import 'package:drift/drift.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:relaywave_mobile/app/app.dart';
 import 'package:relaywave_mobile/features/auth/domain/auth_repository.dart';
 import 'package:relaywave_mobile/features/auth/domain/user.dart';
+import 'package:relaywave_mobile/features/chat/data/message_cache.dart';
 import 'package:relaywave_mobile/features/chat/domain/chat_repository.dart';
 import 'package:relaywave_mobile/features/chat/domain/message.dart';
+import 'package:relaywave_mobile/features/rooms/data/room_cache.dart';
 import 'package:relaywave_mobile/features/rooms/domain/room.dart';
 import 'package:relaywave_mobile/features/rooms/domain/room_repository.dart';
 
 class _FakeRoomRepository implements RoomRepository {
-  _FakeRoomRepository({this.rooms = const <Room>[]});
+  _FakeRoomRepository({
+    this.rooms = const <Room>[],
+    this.listRoomsGate,
+  });
 
   final List<Room> rooms;
+  final Completer<List<Room>>? listRoomsGate;
 
   @override
-  Future<List<Room>> listRooms() async => rooms;
+  Future<List<Room>> listRooms() async {
+    if (listRoomsGate != null) return listRoomsGate!.future;
+    return rooms;
+  }
 
   @override
   Future<Room> createRoom(String name) {
@@ -127,7 +137,61 @@ class _FakeChatRepository implements ChatRepository {
   }
 }
 
+class _FakeMessageCache implements MessageCache {
+  _FakeMessageCache({
+    List<Message> messages = const <Message>[],
+    this.lastMessageId,
+  }) : messages = List.of(messages);
+
+  final List<Message> messages;
+  int? lastMessageId;
+
+  @override
+  Future<List<Message>> getRecentMessages(int roomId, {int limit = 100}) async {
+    return messages.where((m) => m.roomId == roomId).toList();
+  }
+
+  @override
+  Future<int?> getLastMessageId(int roomId) async => lastMessageId;
+
+  @override
+  Future<void> save(Message message) async {
+    messages.removeWhere((m) => m.id == message.id);
+    messages.add(message);
+  }
+
+  @override
+  Future<void> saveAll(Iterable<Message> messages) async {
+    for (final message in messages) {
+      this.messages.removeWhere((m) => m.id == message.id);
+      this.messages.add(message);
+    }
+  }
+}
+
+class _FakeRoomCache implements RoomCache {
+  _FakeRoomCache({List<Room> rooms = const <Room>[]}) : rooms = List.of(rooms);
+
+  final List<Room> rooms;
+
+  @override
+  Future<List<Room>> getRooms() async => List.of(rooms);
+
+  @override
+  Future<void> saveAll(Iterable<Room> rooms) async {
+    this.rooms
+      ..clear()
+      ..addAll(rooms);
+  }
+}
+
 void main() {
+  // Each test pumps a fresh RelaywaveApp, which constructs a new AppDatabase.
+  // These instances never share a QueryExecutor (the real DB is never opened
+  // because fakes are injected), so suppress drift's debug-only multi-instance
+  // warning.
+  driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+
   final sampleRoom = Room(
     id: 1,
     name: 'general',
@@ -138,7 +202,11 @@ void main() {
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
-      RelaywaveApp(authRepository: _FakeAuthRepository()),
+      RelaywaveApp(
+        authRepository: _FakeAuthRepository(),
+        messageCache: _FakeMessageCache(),
+        roomCache: _FakeRoomCache(),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -152,6 +220,8 @@ void main() {
       RelaywaveApp(
         authRepository: _FakeAuthenticatedRepository(),
         roomRepository: _FakeRoomRepository(),
+        messageCache: _FakeMessageCache(),
+        roomCache: _FakeRoomCache(),
       ),
     );
     await tester.pumpAndSettle();
@@ -168,6 +238,8 @@ void main() {
         authRepository: _FakeAuthenticatedRepository(),
         roomRepository: _FakeRoomRepository(rooms: [sampleRoom]),
         chatRepository: chatRepository,
+        messageCache: _FakeMessageCache(),
+        roomCache: _FakeRoomCache(),
       ),
     );
     await tester.pumpAndSettle();
@@ -222,6 +294,8 @@ void main() {
         authRepository: _FakeAuthenticatedRepository(),
         roomRepository: _FakeRoomRepository(rooms: [sampleRoom]),
         chatRepository: chatRepository,
+        messageCache: _FakeMessageCache(),
+        roomCache: _FakeRoomCache(),
       ),
     );
     await tester.pumpAndSettle();
@@ -250,6 +324,8 @@ void main() {
         authRepository: _FakeAuthenticatedRepository(),
         roomRepository: _FakeRoomRepository(rooms: [sampleRoom]),
         chatRepository: chatRepository,
+        messageCache: _FakeMessageCache(),
+        roomCache: _FakeRoomCache(),
       ),
     );
     await tester.pumpAndSettle();
@@ -273,6 +349,8 @@ void main() {
         authRepository: _FakeAuthenticatedRepository(),
         roomRepository: _FakeRoomRepository(rooms: [sampleRoom]),
         chatRepository: chatRepository,
+        messageCache: _FakeMessageCache(),
+        roomCache: _FakeRoomCache(),
       ),
     );
     await tester.pumpAndSettle();
@@ -301,11 +379,105 @@ void main() {
       RelaywaveApp(
         authRepository: _FakeAuthenticatedRepository(),
         roomRepository: _FakeRoomRepository(),
+        messageCache: _FakeMessageCache(),
+        roomCache: _FakeRoomCache(),
       ),
     );
     await tester.pumpAndSettle();
 
     expect(find.text('No rooms yet. Create or join one.'), findsOneWidget);
     expect(find.text('Select a room to start chatting'), findsOneWidget);
+  });
+
+  testWidgets('renders cached history before any live socket event', (
+    WidgetTester tester,
+  ) async {
+    final cachedMessage = Message(
+      id: 42,
+      roomId: 1,
+      senderId: 2,
+      content: 'cached hello',
+      createdAt: DateTime.utc(2026, 1, 1),
+    );
+    final messageCache = _FakeMessageCache(
+      messages: [cachedMessage],
+      lastMessageId: 42,
+    );
+    final chatRepository = _FakeChatRepository();
+    await tester.pumpWidget(
+      RelaywaveApp(
+        authRepository: _FakeAuthenticatedRepository(),
+        roomRepository: _FakeRoomRepository(rooms: [sampleRoom]),
+        chatRepository: chatRepository,
+        messageCache: messageCache,
+        roomCache: _FakeRoomCache(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('general'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // The cached message renders before any ChatSocketEvent is emitted.
+    expect(find.text('cached hello'), findsOneWidget);
+    expect(chatRepository.connectCount, 1);
+  });
+
+  testWidgets('writes a live message through to the cache', (
+    WidgetTester tester,
+  ) async {
+    final messageCache = _FakeMessageCache();
+    final chatRepository = _FakeChatRepository();
+    await tester.pumpWidget(
+      RelaywaveApp(
+        authRepository: _FakeAuthenticatedRepository(),
+        roomRepository: _FakeRoomRepository(rooms: [sampleRoom]),
+        chatRepository: chatRepository,
+        messageCache: messageCache,
+        roomCache: _FakeRoomCache(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('general'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    chatRepository.add(const ChatSocketConnected());
+    await tester.pump();
+
+    final liveMessage = Message(
+      id: 7,
+      roomId: 1,
+      senderId: 2,
+      content: 'live write',
+      createdAt: DateTime.utc(2026, 1, 1),
+    );
+    chatRepository.add(ChatSocketMessage(liveMessage));
+    await tester.pump();
+    await tester.pump();
+
+    expect(messageCache.messages.any((m) => m.id == 7), isTrue);
+  });
+
+  testWidgets('renders cached rooms before the network returns', (
+    WidgetTester tester,
+  ) async {
+    final gate = Completer<List<Room>>();
+    await tester.pumpWidget(
+      RelaywaveApp(
+        authRepository: _FakeAuthenticatedRepository(),
+        roomRepository: _FakeRoomRepository(listRoomsGate: gate),
+        messageCache: _FakeMessageCache(),
+        roomCache: _FakeRoomCache(rooms: [sampleRoom]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('general'), findsOneWidget);
+
+    gate.complete(const <Room>[]);
+    await tester.pump();
   });
 }

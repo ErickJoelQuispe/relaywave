@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../auth/presentation/auth_bloc.dart';
 import '../../auth/presentation/auth_state.dart';
 import '../../../core/theme/tokens.dart';
+import '../data/message_cache.dart';
 import '../domain/chat_repository.dart';
 import '../domain/message.dart';
 import 'chat_bloc.dart';
@@ -28,6 +29,7 @@ class _ChatScreenState extends State<ChatScreen> {
     return BlocProvider(
       create: (_) => ChatBloc(
         repository: chatRepository,
+        cache: context.read<MessageCache>(),
         roomId: widget.roomId,
       )..add(const ChatConnectRequested()),
       child: _ChatView(roomId: widget.roomId, roomName: widget.roomName),

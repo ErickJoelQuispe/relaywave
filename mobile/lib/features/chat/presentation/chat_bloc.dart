@@ -2,14 +2,19 @@ import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../data/message_cache.dart';
 import '../domain/chat_repository.dart';
 import '../domain/message.dart';
 import 'chat_event.dart';
 import 'chat_state.dart';
 
 final class ChatBloc extends Bloc<ChatEvent, ChatState> {
-  ChatBloc({required ChatRepository repository, required int roomId})
-      : _repository = repository, // ignore: prefer_initializing_formals
+  ChatBloc({
+    required ChatRepository repository,
+    required MessageCache cache,
+    required int roomId,
+  })  : _repository = repository, // ignore: prefer_initializing_formals
+        _cache = cache, // ignore: prefer_initializing_formals
         _roomId = roomId, // ignore: prefer_initializing_formals
         super(const ChatConnecting()) {
     on<ChatConnectRequested>(_onConnect);
@@ -20,6 +25,7 @@ final class ChatBloc extends Bloc<ChatEvent, ChatState> {
   }
 
   final ChatRepository _repository;
+  final MessageCache _cache;
   final int _roomId;
 
   ChatConnection? _connection;
@@ -47,6 +53,31 @@ final class ChatBloc extends Bloc<ChatEvent, ChatState> {
   Future<void> _connect(Emitter<ChatState> emit) async {
     await _connection?.close();
     _connection = null;
+
+    List<Message> cached = const [];
+    try {
+      cached = await _cache.getRecentMessages(_roomId);
+      final lastId = await _cache.getLastMessageId(_roomId);
+      if (lastId != null && (_lastMessageId == null || lastId > _lastMessageId!)) {
+        _lastMessageId = lastId;
+      }
+    } catch (_) {
+      // Best-effort cache read; a miss or failure never blocks connecting.
+    }
+    // Only seed from cache on the FIRST connect (state is ChatConnecting).
+    // On reconnect the in-memory list is already populated via write-through,
+    // so re-emitting cached here could drop a just-arrived message.
+    if (cached.isNotEmpty && state is! ChatActive && !isClosed && !emit.isDone) {
+      emit(
+        ChatActive(
+          messages: cached,
+          typingUserIds: const {},
+          onlineUserIds: const {},
+          isConnected: true,
+        ),
+      );
+    }
+
     try {
       final connection = await _repository.connect(_roomId);
       if (isClosed) return;
@@ -60,7 +91,14 @@ final class ChatBloc extends Bloc<ChatEvent, ChatState> {
       );
     } catch (_) {
       if (isClosed) return;
-      emit(const ChatFailed('Could not connect to the room.'));
+      final current = state;
+      if (current is ChatActive) {
+        // Cached history was already shown; keep it while we retry.
+        emit(current.copyWith(isConnected: false));
+        _scheduleReconnect();
+      } else {
+        emit(const ChatFailed('Could not connect to the room.'));
+      }
     }
   }
 
@@ -68,6 +106,7 @@ final class ChatBloc extends Bloc<ChatEvent, ChatState> {
     List<Message> fetched;
     try {
       fetched = await _repository.fetchMessages(_roomId, after: _lastMessageId);
+      unawaited(_cache.saveAll(fetched));
     } catch (_) {
       return; // non-fatal; retried on next reconnect
     }
@@ -136,6 +175,7 @@ final class ChatBloc extends Bloc<ChatEvent, ChatState> {
           _lastMessageId = message.id;
         }
         emit(current.copyWith(messages: [...current.messages, message]));
+        unawaited(_cache.save(message));
       case ChatSocketTyping(:final userId):
         final current = state;
         if (current is! ChatActive) return;

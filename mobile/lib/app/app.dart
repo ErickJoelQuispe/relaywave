@@ -1,15 +1,20 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/database/app_database.dart';
 import '../core/network/api_client.dart';
 import '../features/auth/data/auth_repository_impl.dart';
 import '../features/auth/data/token_storage.dart';
 import '../features/auth/domain/auth_repository.dart';
 import '../features/auth/presentation/auth_bloc.dart';
 import '../features/auth/presentation/auth_event.dart';
+import '../features/chat/data/message_cache.dart';
 import '../features/chat/data/ws_chat_repository_impl.dart';
 import '../features/chat/domain/chat_repository.dart';
+import '../features/rooms/data/room_cache.dart';
 import '../features/rooms/data/room_repository_impl.dart';
 import '../features/rooms/domain/room_repository.dart';
 import '../features/rooms/presentation/rooms_bloc.dart';
@@ -22,11 +27,15 @@ class RelaywaveApp extends StatefulWidget {
     this.authRepository,
     this.roomRepository,
     this.chatRepository,
+    this.messageCache,
+    this.roomCache,
   });
 
   final AuthRepository? authRepository;
   final RoomRepository? roomRepository;
   final ChatRepository? chatRepository;
+  final MessageCache? messageCache;
+  final RoomCache? roomCache;
 
   @override
   State<RelaywaveApp> createState() => _RelaywaveAppState();
@@ -38,6 +47,9 @@ class _RelaywaveAppState extends State<RelaywaveApp> {
   late final AuthRepository _authRepository;
   late final RoomRepository _roomRepository;
   late final ChatRepository _chatRepository;
+  late final AppDatabase _database;
+  late final MessageCache _messageCache;
+  late final RoomCache _roomCache;
   late final AuthBloc _authBloc;
   late final RoomBloc _roomBloc;
   late final GoRouter _router;
@@ -56,8 +68,11 @@ class _RelaywaveAppState extends State<RelaywaveApp> {
         widget.roomRepository ?? RoomRepositoryImpl(dio: _apiClient.dio);
     _chatRepository = widget.chatRepository ??
         ChatRepositoryImpl(dio: _apiClient.dio, tokenStorage: _tokenStorage);
+    _database = AppDatabase();
+    _messageCache = widget.messageCache ?? DriftMessageCache(_database);
+    _roomCache = widget.roomCache ?? DriftRoomCache(_database);
     _authBloc = AuthBloc(_authRepository)..add(const AuthCheckRequested());
-    _roomBloc = RoomBloc(_roomRepository);
+    _roomBloc = RoomBloc(_roomRepository, cache: _roomCache);
     _router = buildRouter(_authBloc);
   }
 
@@ -65,6 +80,7 @@ class _RelaywaveAppState extends State<RelaywaveApp> {
   void dispose() {
     _roomBloc.close();
     _authBloc.close();
+    unawaited(_database.close());
     super.dispose();
   }
 
@@ -76,16 +92,19 @@ class _RelaywaveAppState extends State<RelaywaveApp> {
         value: _roomRepository,
         child: RepositoryProvider<ChatRepository>.value(
           value: _chatRepository,
-          child: BlocProvider<AuthBloc>.value(
-            value: _authBloc,
-            child: BlocProvider<RoomBloc>.value(
-              value: _roomBloc,
-              child: MaterialApp.router(
-                title: 'Relaywave',
-                theme: AppTheme.light,
-                darkTheme: AppTheme.dark,
-                themeMode: ThemeMode.system,
-                routerConfig: _router,
+          child: RepositoryProvider<MessageCache>.value(
+            value: _messageCache,
+            child: BlocProvider<AuthBloc>.value(
+              value: _authBloc,
+              child: BlocProvider<RoomBloc>.value(
+                value: _roomBloc,
+                child: MaterialApp.router(
+                  title: 'Relaywave',
+                  theme: AppTheme.light,
+                  darkTheme: AppTheme.dark,
+                  themeMode: ThemeMode.system,
+                  routerConfig: _router,
+                ),
               ),
             ),
           ),
