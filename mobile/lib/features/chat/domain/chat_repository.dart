@@ -49,4 +49,6 @@ abstract interface class ChatConnection {
 
 abstract interface class ChatRepository {
   Future<ChatConnection> connect(int roomId);
+
+  Future<List<Message>> fetchMessages(int roomId, {int? after, int limit = 100});
 }

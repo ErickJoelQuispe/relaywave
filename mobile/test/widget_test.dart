@@ -97,14 +97,32 @@ class _FakeChatConnection implements ChatConnection {
 }
 
 class _FakeChatRepository implements ChatRepository {
-  final StreamController<ChatSocketEvent> _controller =
-      StreamController<ChatSocketEvent>.broadcast();
+  _FakeChatRepository({this.history = const <Message>[]});
 
-  void add(ChatSocketEvent event) => _controller.add(event);
+  List<Message> history;
+  int connectCount = 0;
+
+  final List<StreamController<ChatSocketEvent>> _controllers = [];
+
+  StreamController<ChatSocketEvent> get _latestController => _controllers.last;
+
+  void add(ChatSocketEvent event) => _latestController.add(event);
 
   @override
   Future<ChatConnection> connect(int roomId) async {
-    return _FakeChatConnection(_controller);
+    connectCount++;
+    final controller = StreamController<ChatSocketEvent>.broadcast();
+    _controllers.add(controller);
+    return _FakeChatConnection(controller);
+  }
+
+  @override
+  Future<List<Message>> fetchMessages(
+    int roomId, {
+    int? after,
+    int limit = 100,
+  }) async {
+    return history;
   }
 }
 
@@ -172,7 +190,103 @@ void main() {
       ),
     );
     await tester.pump();
+    await tester.pump();
 
     expect(find.text('hello world'), findsOneWidget);
+  });
+
+  testWidgets('backfills message history when a room is opened', (
+    WidgetTester tester,
+  ) async {
+    final chatRepository = _FakeChatRepository(
+      history: [
+        Message(
+          id: 1,
+          roomId: 1,
+          senderId: 2,
+          content: 'first message',
+          createdAt: DateTime.utc(2026, 1, 1),
+        ),
+        Message(
+          id: 2,
+          roomId: 1,
+          senderId: 2,
+          content: 'second message',
+          createdAt: DateTime.utc(2026, 1, 1),
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      RelaywaveApp(
+        authRepository: _FakeAuthenticatedRepository(),
+        roomRepository: _FakeRoomRepository(rooms: [sampleRoom]),
+        chatRepository: chatRepository,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('general'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('first message'), findsOneWidget);
+    expect(find.text('second message'), findsOneWidget);
+  });
+
+  testWidgets('deduplicates a live message that overlaps backfill', (
+    WidgetTester tester,
+  ) async {
+    final message = Message(
+      id: 1,
+      roomId: 1,
+      senderId: 2,
+      content: 'hello world',
+      createdAt: DateTime.utc(2026, 1, 1),
+    );
+    final chatRepository = _FakeChatRepository(history: [message]);
+    await tester.pumpWidget(
+      RelaywaveApp(
+        authRepository: _FakeAuthenticatedRepository(),
+        roomRepository: _FakeRoomRepository(rooms: [sampleRoom]),
+        chatRepository: chatRepository,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('general'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    chatRepository.add(ChatSocketMessage(message));
+    await tester.pump();
+
+    expect(find.text('hello world'), findsOneWidget);
+  });
+
+  testWidgets('auto-reconnects after the connection closes', (
+    WidgetTester tester,
+  ) async {
+    final chatRepository = _FakeChatRepository();
+    await tester.pumpWidget(
+      RelaywaveApp(
+        authRepository: _FakeAuthenticatedRepository(),
+        roomRepository: _FakeRoomRepository(rooms: [sampleRoom]),
+        chatRepository: chatRepository,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('general'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(chatRepository.connectCount, 1);
+
+    chatRepository.add(const ChatSocketClosed());
+    await tester.pump();
+
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(chatRepository.connectCount, 2);
   });
 }

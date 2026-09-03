@@ -55,7 +55,7 @@ class _RelaywaveAppState extends State<RelaywaveApp> {
     _roomRepository =
         widget.roomRepository ?? RoomRepositoryImpl(dio: _apiClient.dio);
     _chatRepository = widget.chatRepository ??
-        ChatRepositoryImpl(tokenStorage: _tokenStorage);
+        ChatRepositoryImpl(dio: _apiClient.dio, tokenStorage: _tokenStorage);
     _authBloc = AuthBloc(_authRepository)..add(const AuthCheckRequested());
     _roomBloc = RoomBloc(_roomRepository);
     _router = buildRouter(_authBloc);

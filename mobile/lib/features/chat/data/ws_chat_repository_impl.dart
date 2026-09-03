@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:dio/dio.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../../../core/config/app_config.dart';
@@ -10,9 +11,13 @@ import '../domain/chat_repository.dart';
 import '../domain/message.dart';
 
 final class ChatRepositoryImpl implements ChatRepository {
-  ChatRepositoryImpl({required TokenStorage tokenStorage})
-      : _tokenStorage = tokenStorage; // ignore: prefer_initializing_formals
+  ChatRepositoryImpl({
+    required Dio dio,
+    required TokenStorage tokenStorage,
+  })  : _dio = dio, // ignore: prefer_initializing_formals
+        _tokenStorage = tokenStorage; // ignore: prefer_initializing_formals
 
+  final Dio _dio;
   final TokenStorage _tokenStorage;
 
   @override
@@ -24,6 +29,22 @@ final class ChatRepositoryImpl implements ChatRepository {
     final uri = Uri.parse('${AppConfig.wsBaseUrl}/ws/rooms/$roomId');
     final channel = WebSocketChannel.connect(uri);
     return _WsChatConnection(channel, token);
+  }
+
+  @override
+  Future<List<Message>> fetchMessages(
+    int roomId, {
+    int? after,
+    int limit = 100,
+  }) async {
+    final response = await _dio.get<List<dynamic>>(
+      '/rooms/$roomId/messages',
+      queryParameters: {'after': after ?? 0, 'limit': limit},
+    );
+    final data = response.data ?? const <dynamic>[];
+    return data
+        .map((e) => Message.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 }
 

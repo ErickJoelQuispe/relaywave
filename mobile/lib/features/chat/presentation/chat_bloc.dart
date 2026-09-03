@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../domain/chat_repository.dart';
+import '../domain/message.dart';
 import 'chat_event.dart';
 import 'chat_state.dart';
 
@@ -24,6 +25,10 @@ final class ChatBloc extends Bloc<ChatEvent, ChatState> {
   ChatConnection? _connection;
   final Map<int, Timer> _typingTimers = {};
 
+  int? _lastMessageId;
+  Timer? _reconnectTimer;
+  int _reconnectAttempt = 0;
+
   Future<void> _onConnect(
     ChatConnectRequested event,
     Emitter<ChatState> emit,
@@ -35,6 +40,7 @@ final class ChatBloc extends Bloc<ChatEvent, ChatState> {
     ChatReconnectRequested event,
     Emitter<ChatState> emit,
   ) async {
+    _reconnectTimer?.cancel();
     await _connect(emit);
   }
 
@@ -45,6 +51,7 @@ final class ChatBloc extends Bloc<ChatEvent, ChatState> {
       final connection = await _repository.connect(_roomId);
       if (isClosed) return;
       _connection = connection;
+      unawaited(_backfill(emit));
       await emit.onEach<ChatSocketEvent>(
         connection.events,
         onData: (event) => _onSocketEvent(event, emit),
@@ -57,9 +64,57 @@ final class ChatBloc extends Bloc<ChatEvent, ChatState> {
     }
   }
 
+  Future<void> _backfill(Emitter<ChatState> emit) async {
+    List<Message> fetched;
+    try {
+      fetched = await _repository.fetchMessages(_roomId, after: _lastMessageId);
+    } catch (_) {
+      return; // non-fatal; retried on next reconnect
+    }
+    if (isClosed || emit.isDone) return;
+    final current = state;
+    final currentMessages =
+        current is ChatActive ? current.messages : const <Message>[];
+    final byId = <int, Message>{for (final m in currentMessages) m.id: m};
+    for (final m in fetched) {
+      byId[m.id] = m;
+    }
+    final merged = byId.values.toList()..sort((a, b) => a.id.compareTo(b.id));
+    if (merged.isNotEmpty) _lastMessageId = merged.last.id;
+    if (current is ChatActive) {
+      emit(current.copyWith(messages: merged));
+    } else if (current is ChatConnecting || current is ChatFailed) {
+      emit(
+        ChatActive(
+          messages: merged,
+          typingUserIds: const {},
+          onlineUserIds: const {},
+          isConnected: true,
+        ),
+      );
+    }
+  }
+
+  void _scheduleReconnect() {
+    _reconnectTimer?.cancel();
+    final delay = Duration(seconds: _backoffSeconds(_reconnectAttempt));
+    _reconnectAttempt++;
+    _reconnectTimer = Timer(delay, () {
+      if (isClosed) return;
+      add(const ChatReconnectRequested());
+    });
+  }
+
+  int _backoffSeconds(int attempt) {
+    final seconds = 1 << attempt; // 1, 2, 4, 8, 16, 32...
+    return seconds.clamp(1, 30);
+  }
+
   void _onSocketEvent(ChatSocketEvent event, Emitter<ChatState> emit) {
     switch (event) {
       case ChatSocketConnected():
+        _reconnectAttempt = 0;
+        _reconnectTimer?.cancel();
         final current = state;
         if (current is ChatConnecting || current is ChatFailed) {
           emit(
@@ -77,6 +132,9 @@ final class ChatBloc extends Bloc<ChatEvent, ChatState> {
         final current = state;
         if (current is! ChatActive) return;
         if (current.messages.any((m) => m.id == message.id)) return;
+        if (_lastMessageId == null || message.id > _lastMessageId!) {
+          _lastMessageId = message.id;
+        }
         emit(current.copyWith(messages: [...current.messages, message]));
       case ChatSocketTyping(:final userId):
         final current = state;
@@ -109,6 +167,7 @@ final class ChatBloc extends Bloc<ChatEvent, ChatState> {
           emit(ChatFailed(message));
         } else if (current is ChatActive) {
           emit(current.copyWith(isConnected: false));
+          _scheduleReconnect();
         }
       case ChatSocketClosed():
         final current = state;
@@ -116,6 +175,7 @@ final class ChatBloc extends Bloc<ChatEvent, ChatState> {
           emit(const ChatFailed('Could not connect to the room.'));
         } else if (current is ChatActive) {
           emit(current.copyWith(isConnected: false));
+          _scheduleReconnect();
         }
     }
   }
@@ -144,6 +204,7 @@ final class ChatBloc extends Bloc<ChatEvent, ChatState> {
 
   @override
   Future<void> close() async {
+    _reconnectTimer?.cancel();
     for (final timer in _typingTimers.values) {
       timer.cancel();
     }
