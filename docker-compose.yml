@@ -1,7 +1,8 @@
 # Phase 1: Postgres is now exposed on 127.0.0.1:5432 so the API can run
 # locally with `uv run uvicorn --reload` against the same database the
-# containers use. The API still does not talk to Redis (that wiring —
-# redis-py fan-out — lands in Phase 2 per docs/project-definition.md).
+# containers use. Phase 2 does the same for Redis (127.0.0.1:6379): the API
+# now pings Redis at startup, but the Pub/Sub fan-out itself (RoomBroadcaster)
+# is not yet wired into the WebSocket route — see docs/project-definition.md.
 
 services:
   api:
@@ -17,6 +18,9 @@ services:
       # In-container URL: postgres is reached by its service name on the
       # Compose network. asyncpg driver scheme.
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-relaywave}:${POSTGRES_PASSWORD:-relaywave}@postgres:5432/${POSTGRES_DB:-relaywave}
+      # Same reasoning as DATABASE_URL: redis is reached by its service name
+      # on the Compose network, not by the loopback address the host uses.
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy
@@ -64,6 +68,11 @@ services:
 
   redis:
     image: redis:7-alpine
+    ports:
+      # Loopback-only host access for local `uv run` development, same
+      # reasoning as postgres above: the API and pytest run on the host, not
+      # in a container, and need a way to reach Redis directly.
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
