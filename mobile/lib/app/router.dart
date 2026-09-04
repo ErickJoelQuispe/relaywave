@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:animations/animations.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -69,10 +70,21 @@ GoRouter buildRouter(AuthBloc authBloc) {
           ),
           GoRoute(
             path: '/rooms/:id',
-            builder: (context, state) {
+            pageBuilder: (context, state) {
               final roomId = int.parse(state.pathParameters['id']!);
               final roomName = state.uri.queryParameters['name'] ?? 'Room';
-              return ChatScreen(roomId: roomId, roomName: roomName);
+              return CustomTransitionPage(
+                key: state.pageKey,
+                child: ChatScreen(roomId: roomId, roomName: roomName),
+                transitionsBuilder:
+                    (context, animation, secondaryAnimation, child) =>
+                        SharedAxisTransition(
+                  animation: animation,
+                  secondaryAnimation: secondaryAnimation,
+                  transitionType: SharedAxisTransitionType.horizontal,
+                  child: child,
+                ),
+              );
             },
           ),
         ],

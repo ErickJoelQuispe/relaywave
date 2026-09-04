@@ -264,6 +264,7 @@ void main() {
     );
     await tester.pump();
     await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(find.text('hello world'), findsOneWidget);
   });
@@ -303,6 +304,7 @@ void main() {
     await tester.tap(find.text('general'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
 
     expect(find.text('first message'), findsOneWidget);
     expect(find.text('second message'), findsOneWidget);
@@ -336,6 +338,7 @@ void main() {
 
     chatRepository.add(ChatSocketMessage(message));
     await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(find.text('hello world'), findsOneWidget);
   });
@@ -418,6 +421,7 @@ void main() {
     await tester.tap(find.text('general'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
 
     // The cached message renders before any ChatSocketEvent is emitted.
     expect(find.text('cached hello'), findsOneWidget);
@@ -457,6 +461,7 @@ void main() {
     chatRepository.add(ChatSocketMessage(liveMessage));
     await tester.pump();
     await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(messageCache.messages.any((m) => m.id == 7), isTrue);
   });

@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../auth/presentation/auth_bloc.dart';
 import '../../auth/presentation/auth_event.dart';
+import '../../../core/widgets/shimmer_list_placeholder.dart';
+import '../domain/room.dart';
 import 'rooms_bloc.dart';
 import 'rooms_event.dart';
 import 'rooms_state.dart';
@@ -16,6 +19,8 @@ class RoomsPane extends StatefulWidget {
 }
 
 class _RoomsPaneState extends State<RoomsPane> {
+  bool _roomsAnimatedOnce = false;
+
   @override
   void initState() {
     super.initState();
@@ -56,9 +61,8 @@ class _RoomsPaneState extends State<RoomsPane> {
 
   Widget _buildBody(RoomsState state) {
     return switch (state) {
-      RoomsInitial() || RoomsLoadInProgress() => const Center(
-          child: CircularProgressIndicator(),
-        ),
+      RoomsInitial() || RoomsLoadInProgress() =>
+        const ShimmerListPlaceholder(),
       RoomsLoadFailure(:final message) => Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -73,28 +77,56 @@ class _RoomsPaneState extends State<RoomsPane> {
             ],
           ),
         ),
-      RoomsLoaded(:final rooms, :final submitting) => Column(
-          children: [
-            if (submitting) const LinearProgressIndicator(),
-            Expanded(
-              child: rooms.isEmpty
-                  ? const Center(
-                      child: Text('No rooms yet. Create or join one.'),
-                    )
-                  : ListView.builder(
-                      itemCount: rooms.length,
-                      itemBuilder: (context, index) => ListTile(
-                        title: Text(rooms[index].name),
-                        onTap: () => context.go(
-                          '/rooms/${rooms[index].id}'
-                          '?name=${Uri.encodeComponent(rooms[index].name)}',
-                        ),
-                      ),
-                    ),
-            ),
-          ],
+      RoomsLoaded(:final rooms, :final submitting) => _buildLoaded(
+          rooms,
+          submitting,
         ),
     };
+  }
+
+  Widget _buildLoaded(List<Room> rooms, bool submitting) {
+    // The rooms list staggers in once the first time a non-empty list renders.
+    // Later rebuilds (including the stale-while-revalidate refresh) render
+    // with no animation wrapper.
+    final shouldAnimate = !_roomsAnimatedOnce && rooms.isNotEmpty;
+    if (shouldAnimate) _roomsAnimatedOnce = true;
+
+    return Column(
+      children: [
+        if (submitting) const LinearProgressIndicator(),
+        Expanded(
+          child: rooms.isEmpty
+              ? const Center(
+                  child: Text('No rooms yet. Create or join one.'),
+                )
+              : ListView.builder(
+                  itemCount: rooms.length,
+                  itemBuilder: (context, index) {
+                    final tile = ListTile(
+                      title: Text(rooms[index].name),
+                      onTap: () => context.go(
+                        '/rooms/${rooms[index].id}'
+                        '?name=${Uri.encodeComponent(rooms[index].name)}',
+                      ),
+                    );
+                    if (!shouldAnimate) return tile;
+                    return tile
+                        .animate(delay: (30 * index).clamp(0, 250).ms)
+                        .fadeIn(
+                          duration: 200.ms,
+                          curve: Curves.easeOut,
+                        )
+                        .slideX(
+                          begin: 0.05,
+                          end: 0,
+                          duration: 200.ms,
+                          curve: Curves.easeOut,
+                        );
+                  },
+                ),
+        ),
+      ],
+    );
   }
 
   @override

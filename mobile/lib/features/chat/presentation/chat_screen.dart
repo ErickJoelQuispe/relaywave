@@ -1,17 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../auth/presentation/auth_bloc.dart';
 import '../../auth/presentation/auth_state.dart';
 import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/shimmer_list_placeholder.dart';
 import '../data/message_cache.dart';
 import '../domain/chat_repository.dart';
 import '../domain/message.dart';
 import 'chat_bloc.dart';
 import 'chat_event.dart';
 import 'chat_state.dart';
+import 'typing_indicator.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key, required this.roomId, required this.roomName});
@@ -50,6 +53,10 @@ class _ChatView extends StatefulWidget {
 
 class _ChatViewState extends State<_ChatView> {
   final TextEditingController _inputController = TextEditingController();
+
+  final Set<int> _seenMessageIds = {};
+  bool _seenInitialized = false;
+  bool _pressed = false;
 
   @override
   void dispose() {
@@ -141,7 +148,7 @@ class _ChatViewState extends State<_ChatView> {
     TextTheme textTheme,
   ) {
     return switch (state) {
-      ChatConnecting() => const Center(child: CircularProgressIndicator()),
+      ChatConnecting() => const ShimmerListPlaceholder(itemCount: 6),
       ChatFailed(:final message) => Center(
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.lg),
@@ -176,9 +183,24 @@ class _ChatViewState extends State<_ChatView> {
     TextTheme textTheme,
   ) {
     final messages = state.messages;
+
+    // Seed the "seen" set on the very first render so history that is already
+    // present when the screen opens does not animate in. Only messages that
+    // arrive later (after the screen is showing) are treated as new.
+    if (!_seenInitialized) {
+      _seenMessageIds.addAll(messages.map((m) => m.id));
+      _seenInitialized = true;
+    }
+
     return Column(
       children: [
-        if (!state.isConnected) _buildReconnectBanner(colorScheme),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeOut,
+          child: state.isConnected
+              ? const SizedBox.shrink()
+              : _buildReconnectBanner(colorScheme),
+        ),
         Expanded(
           child: messages.isEmpty
               ? const Center(child: Text('No messages yet.'))
@@ -191,10 +213,23 @@ class _ChatViewState extends State<_ChatView> {
                   itemCount: messages.length,
                   itemBuilder: (context, index) {
                     final message = messages[messages.length - 1 - index];
-                    return _MessageBubble(
+                    final bubble = _MessageBubble(
                       message: message,
                       isMine: message.senderId == myUserId,
                     );
+                    // A message already in the seen set is a re-render of
+                    // previously shown content and must not animate in again.
+                    final isNew = _seenMessageIds.add(message.id);
+                    if (!isNew) return bubble;
+                    return bubble
+                        .animate()
+                        .fadeIn(duration: 150.ms, curve: Curves.easeOut)
+                        .slideY(
+                          begin: 0.08,
+                          end: 0,
+                          duration: 150.ms,
+                          curve: Curves.easeOut,
+                        );
                   },
                 ),
         ),
@@ -206,11 +241,17 @@ class _ChatViewState extends State<_ChatView> {
             ),
             child: Align(
               alignment: Alignment.centerLeft,
-              child: Text(
-                'Someone is typing...',
-                style: textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
+              child: Row(
+                children: [
+                  const TypingIndicator(),
+                  const SizedBox(width: AppSpacing.sm),
+                  Text(
+                    'Someone is typing...',
+                    style: textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -268,10 +309,22 @@ class _ChatViewState extends State<_ChatView> {
             ),
           ),
           const SizedBox(width: AppSpacing.sm),
-          IconButton(
-            icon: const Icon(Icons.send),
-            tooltip: 'Send',
-            onPressed: _sendMessage,
+          Listener(
+            onPointerDown: (_) => setState(() => _pressed = true),
+            onPointerUp: (_) => setState(() => _pressed = false),
+            onPointerCancel: (_) => setState(() => _pressed = false),
+            child: IconButton(
+              icon: const Icon(Icons.send),
+              tooltip: 'Send',
+              onPressed: _sendMessage,
+            ).animate(
+              target: _pressed ? 1 : 0,
+            ).scale(
+              begin: const Offset(1, 1),
+              end: const Offset(0.92, 0.92),
+              duration: 120.ms,
+              curve: Curves.easeOut,
+            ),
           ),
         ],
       ),
