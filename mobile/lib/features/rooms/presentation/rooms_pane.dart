@@ -22,89 +22,36 @@ class _RoomsPaneState extends State<RoomsPane> {
     context.read<RoomBloc>().add(const RoomsLoadRequested());
   }
 
+  // Dialog content lives in its own StatefulWidget (_JoinRoomDialog /
+  // _CreateRoomDialog below) so the TextEditingController is created and
+  // disposed by the framework's own element lifecycle. Manually creating a
+  // controller here and calling `controller.dispose()` right after `await
+  // showDialog(...)` races the dialog's exit transition: `Navigator.pop()`
+  // resolves that future before the route finishes animating out, so the
+  // still-rendering TextField could touch the controller after dispose,
+  // throwing "A TextEditingController was used after being disposed."
   Future<void> _showJoinRoomDialog() async {
-    final controller = TextEditingController();
     await showDialog<void>(
       context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Join a room'),
-          content: TextField(
-            controller: controller,
-            keyboardType: TextInputType.number,
-            autofocus: true,
-            decoration: const InputDecoration(
-              labelText: 'Room ID',
-              border: OutlineInputBorder(),
-            ),
-            onSubmitted: (_) => _submitJoin(dialogContext, controller),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => _submitJoin(dialogContext, controller),
-              child: const Text('Join'),
-            ),
-          ],
-        );
-      },
+      builder: (dialogContext) => _JoinRoomDialog(
+        onSubmit: (id) {
+          context.read<RoomBloc>().add(RoomJoinRequested(id));
+          Navigator.of(dialogContext).pop();
+        },
+      ),
     );
-    controller.dispose();
-  }
-
-  void _submitJoin(
-    BuildContext dialogContext,
-    TextEditingController controller,
-  ) {
-    final id = int.tryParse(controller.text.trim());
-    if (id == null) return;
-    context.read<RoomBloc>().add(RoomJoinRequested(id));
-    Navigator.of(dialogContext).pop();
   }
 
   Future<void> _showCreateRoomDialog() async {
-    final controller = TextEditingController();
     await showDialog<void>(
       context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Create room'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(
-              labelText: 'Room name',
-              border: OutlineInputBorder(),
-            ),
-            onSubmitted: (_) => _submitCreate(dialogContext, controller),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => _submitCreate(dialogContext, controller),
-              child: const Text('Create'),
-            ),
-          ],
-        );
-      },
+      builder: (dialogContext) => _CreateRoomDialog(
+        onSubmit: (name) {
+          context.read<RoomBloc>().add(RoomCreateRequested(name));
+          Navigator.of(dialogContext).pop();
+        },
+      ),
     );
-    controller.dispose();
-  }
-
-  void _submitCreate(
-    BuildContext dialogContext,
-    TextEditingController controller,
-  ) {
-    final name = controller.text.trim();
-    if (name.isEmpty) return;
-    context.read<RoomBloc>().add(RoomCreateRequested(name));
-    Navigator.of(dialogContext).pop();
   }
 
   Widget _buildBody(RoomsState state) {
@@ -190,6 +137,109 @@ class _RoomsPaneState extends State<RoomsPane> {
           child: const Icon(Icons.add),
         ),
       ),
+    );
+  }
+}
+
+class _JoinRoomDialog extends StatefulWidget {
+  const _JoinRoomDialog({required this.onSubmit});
+
+  final ValueChanged<int> onSubmit;
+
+  @override
+  State<_JoinRoomDialog> createState() => _JoinRoomDialogState();
+}
+
+class _JoinRoomDialogState extends State<_JoinRoomDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final id = int.tryParse(_controller.text.trim());
+    if (id == null) return;
+    widget.onSubmit(id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Join a room'),
+      content: TextField(
+        controller: _controller,
+        keyboardType: TextInputType.number,
+        autofocus: true,
+        decoration: const InputDecoration(
+          labelText: 'Room ID',
+          border: OutlineInputBorder(),
+        ),
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Join'),
+        ),
+      ],
+    );
+  }
+}
+
+class _CreateRoomDialog extends StatefulWidget {
+  const _CreateRoomDialog({required this.onSubmit});
+
+  final ValueChanged<String> onSubmit;
+
+  @override
+  State<_CreateRoomDialog> createState() => _CreateRoomDialogState();
+}
+
+class _CreateRoomDialogState extends State<_CreateRoomDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _controller.text.trim();
+    if (name.isEmpty) return;
+    widget.onSubmit(name);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Create room'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        decoration: const InputDecoration(
+          labelText: 'Room name',
+          border: OutlineInputBorder(),
+        ),
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Create'),
+        ),
+      ],
     );
   }
 }

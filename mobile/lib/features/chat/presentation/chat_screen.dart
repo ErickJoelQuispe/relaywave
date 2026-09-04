@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -63,6 +64,16 @@ class _ChatViewState extends State<_ChatView> {
     _inputController.clear();
   }
 
+  Future<void> _copyRoomId() async {
+    await Clipboard.setData(ClipboardData(text: '${widget.roomId}'));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text('Room ID ${widget.roomId} copied')),
+      );
+  }
+
   @override
   Widget build(BuildContext context) {
     final myUserId = context.select<AuthBloc, int?>((bloc) {
@@ -91,15 +102,24 @@ class _ChatViewState extends State<_ChatView> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(widget.roomName),
-            if (onlineCount != null)
-              Text(
-                '$onlineCount online',
-                style: textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
+            Text(
+              [
+                'Room #${widget.roomId}',
+                if (onlineCount != null) '$onlineCount online',
+              ].join(' · '),
+              style: textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
               ),
+            ),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.copy_outlined),
+            tooltip: 'Copy room ID to invite others',
+            onPressed: _copyRoomId,
+          ),
+        ],
       ),
       body: SafeArea(
         child: BlocBuilder<ChatBloc, ChatState>(

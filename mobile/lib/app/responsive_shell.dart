@@ -18,19 +18,31 @@ class ResponsiveShell extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.maxWidth < AppBreakpoints.desktop) {
-          return child;
-        }
+        final isWide = constraints.maxWidth >= AppBreakpoints.desktop;
+        final detail = isWide && state.uri.path == '/'
+            ? const _SelectRoomPlaceholder()
+            : child;
 
+        // `child` must keep the exact same ancestor depth/shape on both
+        // narrow and wide layouts. Resizing across [AppBreakpoints.desktop]
+        // (e.g. a tiling window manager reflowing the window) used to swap
+        // `child` between "direct" and "3 levels deep under Scaffold/Row/
+        // Expanded" in the same frame, which corrupted the element tree
+        // (disposed TextEditingController, `_dependents.isEmpty` assertion).
+        // Keeping Scaffold > Row > Expanded constant and only toggling the
+        // leading rooms pane avoids reparenting `child` altogether.
         return Scaffold(
           body: Row(
             children: [
-              const SizedBox(width: 320, child: RoomsPane()),
-              const VerticalDivider(width: 1),
+              if (isWide) ...[
+                const SizedBox(width: 320, child: RoomsPane()),
+                const VerticalDivider(width: 1),
+              ],
               Expanded(
-                child: state.uri.path == '/'
-                    ? const _SelectRoomPlaceholder()
-                    : child,
+                child: KeyedSubtree(
+                  key: const ValueKey('responsive-shell-detail'),
+                  child: detail,
+                ),
               ),
             ],
           ),

@@ -28,7 +28,20 @@ class Rooms extends Table {
 
 @DriftDatabase(tables: [Messages, Rooms])
 class AppDatabase extends _$AppDatabase {
-  AppDatabase() : super(driftDatabase(name: 'relaywave'));
+  // `web:` is required when this app runs as Flutter Web: drift loads sqlite3
+  // compiled to WebAssembly plus a background worker instead of a native file.
+  // Both assets are downloaded into mobile/web/ (matching the pinned `drift`
+  // version in pubspec.lock) since they aren't fetched at build time.
+  AppDatabase()
+    : super(
+        driftDatabase(
+          name: 'relaywave',
+          web: DriftWebOptions(
+            sqlite3Wasm: Uri.parse('sqlite3.wasm'),
+            driftWorker: Uri.parse('drift_worker.js'),
+          ),
+        ),
+      );
 
   @override
   int get schemaVersion => 1;
