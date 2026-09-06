@@ -16,6 +16,38 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    # Phase 4 slice 3: real Postgres + Redis service containers so the
+    # integration test suite (test_broadcaster.py, test_ws.py, etc.) actually
+    # runs instead of skipping. Service containers are reachable on
+    # localhost from the (non-containerized) ubuntu-latest runner via the
+    # mapped ports below — matching Settings' localhost defaults in
+    # app/core/config.py, no DATABASE_URL/REDIS_URL override needed.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: relaywave
+          POSTGRES_PASSWORD: relaywave
+          POSTGRES_DB: relaywave
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U relaywave -d relaywave"
+          --health-interval=10s
+          --health-timeout=3s
+          --health-retries=5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=3s
+          --health-retries=5
+    env:
+      # Test-only signing key — never used outside CI, not a real secret.
+      JWT_SECRET_KEY: ci-test-only-jwt-secret-key-not-for-production-use
     steps:
       - uses: actions/checkout@v7
 
