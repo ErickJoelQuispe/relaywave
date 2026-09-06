@@ -5,3 +5,5 @@ docs/
 .env.*
 !.env.example
 kind-logs/
+k8s/backend/secret.yaml
+k8s/postgres/secret.yaml
