@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/network/api_exception.dart';
 import '../data/room_cache.dart';
+import '../domain/room.dart';
 import '../domain/room_repository.dart';
 import 'rooms_event.dart';
 import 'rooms_state.dart';
@@ -52,19 +53,21 @@ final class RoomBloc extends Bloc<RoomsEvent, RoomsState> {
     RoomCreateRequested event,
     Emitter<RoomsState> emit,
   ) async {
-    final current = state;
-    if (current is! RoomsLoaded) return;
-    emit(RoomsLoaded(rooms: current.rooms, submitting: true));
+    // Creating a room does not depend on the cached list, so it must not be
+    // gated on `state is RoomsLoaded` — the dialog that triggers this event
+    // closes unconditionally, and skipping the API call here would silently
+    // strand the user with a dialog that looked like it worked.
+    final baseRooms = _roomsOf(state);
+    emit(RoomsLoaded(rooms: baseRooms, submitting: true));
     try {
-      await _repository.createRoom(event.name);
-      final rooms = await _repository.listRooms();
-      emit(RoomsLoaded(rooms: rooms));
+      final room = await _repository.createRoom(event.name);
+      emit(RoomsLoaded(rooms: await _refreshedRooms(baseRooms, room)));
     } on ApiException catch (e) {
-      emit(RoomsLoaded(rooms: current.rooms, error: e.message));
+      emit(RoomsLoaded(rooms: baseRooms, error: e.message));
     } catch (_) {
       emit(
         RoomsLoaded(
-          rooms: current.rooms,
+          rooms: baseRooms,
           error: 'Something went wrong. Please try again.',
         ),
       );
@@ -75,22 +78,66 @@ final class RoomBloc extends Bloc<RoomsEvent, RoomsState> {
     RoomJoinRequested event,
     Emitter<RoomsState> emit,
   ) async {
-    final current = state;
-    if (current is! RoomsLoaded) return;
-    emit(RoomsLoaded(rooms: current.rooms, submitting: true));
+    // See _onCreate: joining does not depend on the cached list either.
+    final baseRooms = _roomsOf(state);
+    emit(RoomsLoaded(rooms: baseRooms, submitting: true));
     try {
       await _repository.joinRoom(event.roomId);
-      final rooms = await _repository.listRooms();
+      final rooms = await _refreshedRoomsOrFetch(baseRooms, event.roomId);
       emit(RoomsLoaded(rooms: rooms));
     } on ApiException catch (e) {
-      emit(RoomsLoaded(rooms: current.rooms, error: e.message));
+      emit(RoomsLoaded(rooms: baseRooms, error: e.message));
     } catch (_) {
       emit(
         RoomsLoaded(
-          rooms: current.rooms,
+          rooms: baseRooms,
           error: 'Something went wrong. Please try again.',
         ),
       );
     }
+  }
+
+  List<Room> _roomsOf(RoomsState state) =>
+      state is RoomsLoaded ? state.rooms : const <Room>[];
+
+  /// Refreshes the full list after a create. If the refresh fails, the room
+  /// we just created is already known — merge it into `baseRooms` instead of
+  /// silently dropping it from the UI while the membership still exists
+  /// server-side.
+  Future<List<Room>> _refreshedRooms(
+    List<Room> baseRooms,
+    Room newRoom,
+  ) async {
+    try {
+      return await _repository.listRooms();
+    } catch (_) {
+      return _withRoom(baseRooms, newRoom);
+    }
+  }
+
+  /// Same as [_refreshedRooms], but for a join: the join call only confirms
+  /// membership, so on refresh failure we fetch the room's details directly
+  /// rather than losing it from the list.
+  Future<List<Room>> _refreshedRoomsOrFetch(
+    List<Room> baseRooms,
+    int roomId,
+  ) async {
+    try {
+      return await _repository.listRooms();
+    } catch (_) {
+      final room = await _repository.getRoom(roomId);
+      return _withRoom(baseRooms, room);
+    }
+  }
+
+  List<Room> _withRoom(List<Room> rooms, Room room) {
+    final merged = [...rooms];
+    final index = merged.indexWhere((r) => r.id == room.id);
+    if (index >= 0) {
+      merged[index] = room;
+    } else {
+      merged.add(room);
+    }
+    return merged;
   }
 }

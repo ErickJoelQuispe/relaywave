@@ -59,7 +59,7 @@ async def list_rooms(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[Room]:
-    """Return the rooms the current user is a member of, oldest first.
+    """Return the rooms the current user is a member of, most recent first.
 
     This is the home-screen query: a user should not see rooms they are not
     in. "Discover all rooms" would be a separate endpoint (future work).
@@ -68,7 +68,7 @@ async def list_rooms(
         select(Room)
         .join(RoomMembership, RoomMembership.room_id == Room.id)
         .where(RoomMembership.user_id == user.id)
-        .order_by(Room.created_at, Room.id)
+        .order_by(Room.created_at.desc(), Room.id.desc())
     )
     return list(result.scalars().all())
 

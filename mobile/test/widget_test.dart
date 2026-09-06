@@ -35,6 +35,11 @@ class _FakeRoomRepository implements RoomRepository {
   }
 
   @override
+  Future<Room> getRoom(int roomId) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<void> joinRoom(int roomId) {
     throw UnimplementedError();
   }

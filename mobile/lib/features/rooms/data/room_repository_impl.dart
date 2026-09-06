@@ -36,6 +36,16 @@ final class RoomRepositoryImpl implements RoomRepository {
   }
 
   @override
+  Future<Room> getRoom(int roomId) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>('/rooms/$roomId');
+      return Room.fromJson(response.data!);
+    } on DioException catch (e) {
+      throw ApiException(dioErrorMessage(e));
+    }
+  }
+
+  @override
   Future<void> joinRoom(int roomId) async {
     try {
       await _dio.post<void>('/rooms/$roomId/join');
