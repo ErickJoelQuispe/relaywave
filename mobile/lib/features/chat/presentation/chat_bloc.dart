@@ -34,6 +34,7 @@ final class ChatBloc extends Bloc<ChatEvent, ChatState> {
   int? _lastMessageId;
   Timer? _reconnectTimer;
   int _reconnectAttempt = 0;
+  final List<String> _pendingOutbox = [];
 
   Future<void> _onConnect(
     ChatConnectRequested event,
@@ -167,6 +168,7 @@ final class ChatBloc extends Bloc<ChatEvent, ChatState> {
         } else if (current is ChatActive) {
           emit(current.copyWith(isConnected: true));
         }
+        _flushOutbox();
       case ChatSocketMessage(:final message):
         final current = state;
         if (current is! ChatActive) return;
@@ -224,7 +226,32 @@ final class ChatBloc extends Bloc<ChatEvent, ChatState> {
     ChatMessageSendRequested event,
     Emitter<ChatState> emit,
   ) {
-    _connection?.sendMessage(event.content);
+    final connection = _connection;
+    if (connection == null) {
+      // Socket is down (mid-reconnect); queue and flush once it's back.
+      _pendingOutbox.add(event.content);
+      return;
+    }
+    try {
+      connection.sendMessage(event.content);
+    } catch (_) {
+      // Sink was already broken (close hadn't propagated to this bloc yet).
+      _pendingOutbox.add(event.content);
+    }
+  }
+
+  void _flushOutbox() {
+    final connection = _connection;
+    if (_pendingOutbox.isEmpty || connection == null) return;
+    final toSend = List<String>.of(_pendingOutbox);
+    _pendingOutbox.clear();
+    for (final content in toSend) {
+      try {
+        connection.sendMessage(content);
+      } catch (_) {
+        _pendingOutbox.add(content);
+      }
+    }
   }
 
   void _onTypingSend(
