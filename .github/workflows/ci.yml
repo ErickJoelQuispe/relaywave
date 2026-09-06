@@ -58,7 +58,7 @@ jobs:
       # astral-sh/setup-uv also bundles GitHub Actions cache support for
       # uv's resolution/download cache, keyed on uv.lock — this avoids
       # re-downloading the same wheels on every run.
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
