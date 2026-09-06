@@ -6,6 +6,7 @@ abstract interface class MessageCache {
   Future<int?> getLastMessageId(int roomId);
   Future<void> save(Message message);
   Future<void> saveAll(Iterable<Message> messages);
+  Future<void> clear();
 }
 
 final class DriftMessageCache implements MessageCache {
@@ -29,6 +30,9 @@ final class DriftMessageCache implements MessageCache {
   @override
   Future<void> saveAll(Iterable<Message> messages) =>
       _db.saveMessages(messages.map(_toRow));
+
+  @override
+  Future<void> clear() => _db.deleteAllMessages();
 
   Message _toMessage(MessageRow row) => Message(
         id: row.id,

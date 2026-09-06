@@ -167,6 +167,9 @@ class _FakeMessageCache implements MessageCache {
       this.messages.add(message);
     }
   }
+
+  @override
+  Future<void> clear() async => messages.clear();
 }
 
 class _FakeRoomCache implements RoomCache {
@@ -183,6 +186,9 @@ class _FakeRoomCache implements RoomCache {
       ..clear()
       ..addAll(rooms);
   }
+
+  @override
+  Future<void> clear() async => rooms.clear();
 }
 
 void main() {

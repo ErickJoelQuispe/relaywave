@@ -59,18 +59,20 @@ class _RelaywaveAppState extends State<RelaywaveApp> {
     super.initState();
     _tokenStorage = SecureTokenStorage();
     _apiClient = ApiClient(tokenStorage: _tokenStorage);
+    _database = AppDatabase();
+    _messageCache = widget.messageCache ?? DriftMessageCache(_database);
+    _roomCache = widget.roomCache ?? DriftRoomCache(_database);
     _authRepository = widget.authRepository ??
         AuthRepositoryImpl(
           dio: _apiClient.dio,
           tokenStorage: _tokenStorage,
+          roomCache: _roomCache,
+          messageCache: _messageCache,
         );
     _roomRepository =
         widget.roomRepository ?? RoomRepositoryImpl(dio: _apiClient.dio);
     _chatRepository = widget.chatRepository ??
         ChatRepositoryImpl(dio: _apiClient.dio, tokenStorage: _tokenStorage);
-    _database = AppDatabase();
-    _messageCache = widget.messageCache ?? DriftMessageCache(_database);
-    _roomCache = widget.roomCache ?? DriftRoomCache(_database);
     _authBloc = AuthBloc(_authRepository)..add(const AuthCheckRequested());
     _roomBloc = RoomBloc(_roomRepository, cache: _roomCache);
     _router = buildRouter(_authBloc);

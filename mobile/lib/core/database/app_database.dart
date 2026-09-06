@@ -72,4 +72,8 @@ class AppDatabase extends _$AppDatabase {
 
   Future<void> saveRooms(Iterable<RoomRow> rows) =>
       batch((b) => b.insertAll(rooms, rows, mode: InsertMode.insertOrReplace));
+
+  Future<void> deleteAllRooms() => delete(rooms).go();
+
+  Future<void> deleteAllMessages() => delete(messages).go();
 }

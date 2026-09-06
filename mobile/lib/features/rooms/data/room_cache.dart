@@ -4,6 +4,7 @@ import '../domain/room.dart';
 abstract interface class RoomCache {
   Future<List<Room>> getRooms();
   Future<void> saveAll(Iterable<Room> rooms);
+  Future<void> clear();
 }
 
 final class DriftRoomCache implements RoomCache {
@@ -19,6 +20,9 @@ final class DriftRoomCache implements RoomCache {
   @override
   Future<void> saveAll(Iterable<Room> rooms) =>
       _db.saveRooms(rooms.map(_toRow));
+
+  @override
+  Future<void> clear() => _db.deleteAllRooms();
 
   Room _toRoom(RoomRow row) => Room(
         id: row.id,

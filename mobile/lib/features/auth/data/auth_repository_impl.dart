@@ -1,6 +1,8 @@
 import 'package:dio/dio.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../chat/data/message_cache.dart';
+import '../../rooms/data/room_cache.dart';
 import '../domain/auth_repository.dart';
 import '../domain/user.dart';
 import 'token_storage.dart';
@@ -9,11 +11,17 @@ final class AuthRepositoryImpl implements AuthRepository {
   AuthRepositoryImpl({
     required Dio dio,
     required TokenStorage tokenStorage,
+    required RoomCache roomCache,
+    required MessageCache messageCache,
   })  : _dio = dio, // ignore: prefer_initializing_formals
-        _tokenStorage = tokenStorage; // ignore: prefer_initializing_formals
+        _tokenStorage = tokenStorage, // ignore: prefer_initializing_formals
+        _roomCache = roomCache, // ignore: prefer_initializing_formals
+        _messageCache = messageCache; // ignore: prefer_initializing_formals
 
   final Dio _dio;
   final TokenStorage _tokenStorage;
+  final RoomCache _roomCache;
+  final MessageCache _messageCache;
 
   @override
   Future<User> login(String email, String password) async {
@@ -59,7 +67,11 @@ final class AuthRepositoryImpl implements AuthRepository {
         // Best-effort: the remote revoke may fail, but local logout must proceed.
       }
     }
+    // Clear local caches alongside the tokens so a subsequent login on the
+    // same app instance never briefly flashes the previous account's data.
     await _tokenStorage.clear();
+    await _roomCache.clear();
+    await _messageCache.clear();
   }
 
   @override
