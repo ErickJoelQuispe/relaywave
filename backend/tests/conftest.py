@@ -90,16 +90,30 @@ async def ws_client(db):
     WebSocket traffic is driven in-process on the SAME event loop as the rest
     of the async test suite — mixing in Starlette's sync `TestClient` here
     would spin up a second loop and asyncpg would reject cross-loop use.
+
+    Teardown of `ASGIWebSocketTransport` raises a spurious
+    `RuntimeError: Attempted to exit cancel scope in a different task than
+    it was entered in` under `pytest-asyncio` (it doesn't happen with the
+    `anyio` pytest plugin). This is a confirmed upstream limitation —
+    frankie567/httpx-ws#128, closed by the maintainer as "not planned" — not
+    a bug in this app: every test's assertions already ran and passed by the
+    time this fires during cleanup, so it's suppressed here rather than
+    failing otherwise-green tests.
     """
 
     async def override_get_db():
         yield db
 
     app.dependency_overrides[get_db] = override_get_db
-    async with ASGIWebSocketTransport(app) as transport:
-        async with AsyncClient(transport=transport, base_url="http://test") as c:
-            yield c
-    app.dependency_overrides.clear()
+    try:
+        async with ASGIWebSocketTransport(app) as transport:
+            async with AsyncClient(transport=transport, base_url="http://test") as c:
+                yield c
+    except RuntimeError as exc:
+        if "cancel scope" not in str(exc):
+            raise
+    finally:
+        app.dependency_overrides.clear()
 
 
 @pytest_asyncio.fixture(autouse=True)
