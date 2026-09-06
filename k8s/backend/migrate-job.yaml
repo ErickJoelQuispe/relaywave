@@ -1,0 +1,19 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+    name: migrate
+    namespace: relaywave
+spec:
+    backoffLimit: 2
+    template:
+        spec:
+            restartPolicy: Never
+            containers:
+                - name: migrate
+                  image: relaywave-backend:local
+                  command: ['alembic', 'upgrade', 'head']
+                  envFrom:
+                      - configMapRef:
+                            name: backend-config
+                      - secretRef:
+                            name: backend-secrets

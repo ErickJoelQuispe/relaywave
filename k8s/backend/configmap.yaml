@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: backend-config
+    namespace: relaywave
+data:
+    APP_NAME: 'relaywave-backend'
+    ENVIRONMENT: 'production'
+    DEBUG: 'false'

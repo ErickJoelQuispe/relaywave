@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: backend
+    namespace: relaywave
+spec:
+    replicas: 1
+    selector:
+        matchLabels:
+            app: backend
+    template:
+        metadata:
+            labels:
+                app: backend
+        spec:
+            containers:
+                - name: backend
+                  image: relaywave-backend:local
+                  ports:
+                      - containerPort: 8000
+                  envFrom:
+                      - configMapRef:
+                            name: backend-config
+                      - secretRef:
+                            name: backend-secrets
+                  readinessProbe:
+                      httpGet:
+                          path: /health
+                          port: 8000
+                      initialDelaySeconds: 5
+                  livenessProbe:
+                      httpGet:
+                          path: /health
+                          port: 8000
+                      initialDelaySeconds: 10
+                  resources:
+                      requests:
+                          cpu: '100m'
+                          memory: '128Mi'
+                      limits:
+                          cpu: '500m'
+                          memory: '256Mi'
