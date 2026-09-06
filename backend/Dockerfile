@@ -33,6 +33,8 @@ WORKDIR /app
 
 COPY --from=builder --chown=app:app /app/.venv ./.venv
 COPY --from=builder --chown=app:app /app/app ./app
+COPY --chown=app:app alembic.ini ./
+COPY --chown=app:app alembic ./alembic
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1
