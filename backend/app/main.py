@@ -2,6 +2,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import auth, health, rooms, ws
 from app.core.config import get_settings
@@ -26,6 +27,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+
+# Dev-only CORS: Flutter Web's dev server runs on a random localhost port
+# (`flutter run -d chrome`), a different origin than the API. Scoped to
+# localhost/127.0.0.1 via regex instead of `allow_origins=["*"]` — this is
+# a learning project, not a public API, but a wildcard would still leak the
+# habit. WebSocket handshakes are NOT covered by CORSMiddleware (it only
+# wraps the ASGI "http" scope, not "websocket"), so /ws/rooms/{id} is
+# unaffected; browsers don't enforce CORS preflight on WS anyway.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(health.router)
 app.include_router(auth.router)
