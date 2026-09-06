@@ -98,7 +98,47 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Build only — no push/registry auth. Phase 0 just proves the
-      # container still compiles; deployment stays manual until Phase 4.
+      # Build only — no push/registry auth. This runs on every push and PR
+      # (including forks) and just proves the container still compiles.
       - name: Build backend image
         run: docker build ./backend
+
+  # Phase 4 slice 4 per ADR-003: publish a versioned image to GHCR on every
+  # merge to master/main. Never publish "latest" — the short commit SHA is
+  # the only tag, so a deploy always names an exact, traceable build.
+  docker-push:
+    runs-on: ubuntu-latest
+    needs: [backend, docker-build]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      # GHCR requires a lowercase image path; the GitHub repository/owner
+      # names here are mixed-case.
+      - name: Set lowercase image repository
+        run: echo "IMAGE_REPOSITORY=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      - name: Compute short commit SHA
+        id: vars
+        run: echo "sha_short=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: ghcr.io/${{ env.IMAGE_REPOSITORY }}-backend:${{ steps.vars.outputs.sha_short }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
