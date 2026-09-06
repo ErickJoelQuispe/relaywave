@@ -137,21 +137,25 @@ class RoomBroadcaster:
         in `get_message` is the normal, expected way this loop ends, so it is
         re-raised unchanged — never treated as a failure to recover from.
 
-        Any other exception (a dropped connection, a decode error, whatever
-        `on_message` raises) is caught and logged, `pubsub` is closed
-        best-effort, and `_reconnect` rebuilds a fresh subscription with
-        backoff. Because a new `_reconnect` call starts its own backoff from
+        A dropped connection (an exception from `get_message` itself) is
+        caught and logged, `pubsub` is closed best-effort, and `_reconnect`
+        rebuilds a fresh subscription with backoff. Because a new
+        `_reconnect` call starts its own backoff from
         `_INITIAL_BACKOFF_SECONDS`, a run of successful deliveries between
         outages never carries stale backoff state into the next failure.
+
+        A failure inside `on_message` itself (a decode error, a bug in the
+        caller's callback) is a *different* failure mode: the Redis
+        subscription is still healthy, only the payload or the callback
+        choked on it. Treating that the same as a dropped connection would
+        pay a full reconnect-backoff cycle for nothing, so it is caught and
+        logged separately and the loop just moves on to the next message.
         """
         while True:
             try:
                 message = await pubsub.get_message(
                     ignore_subscribe_messages=True, timeout=None
                 )
-                if message is None:
-                    continue
-                await self._on_message(room_id, message["data"])
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -163,3 +167,19 @@ class RoomBroadcaster:
                 with contextlib.suppress(Exception):
                     await pubsub.aclose()
                 pubsub = await self._reconnect(room_id)
+                continue
+
+            if message is None:
+                continue
+
+            try:
+                await self._on_message(room_id, message["data"])
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning(
+                    "RoomBroadcaster on_message callback for room %s failed, "
+                    "skipping message",
+                    room_id,
+                    exc_info=True,
+                )

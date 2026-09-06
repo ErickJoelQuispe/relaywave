@@ -105,6 +105,45 @@ async def test_unsubscribe_stops_delivery(redis_client):
         await asyncio.wait_for(queue.get(), timeout=_NO_MESSAGE_TIMEOUT_SECONDS)
 
 
+async def test_callback_error_does_not_trigger_reconnect(redis_client):
+    """A bad payload (or any bug in `on_message`) must not be treated as a
+    connection failure.
+
+    `_on_redis_message` in `app/api/routes/ws.py` does `json.loads(data)`
+    with no try/except — a malformed payload on the wire raises inside the
+    callback, not inside `get_message()`. The Redis subscription itself is
+    still perfectly healthy in that case; tearing it down and paying a full
+    reconnect-backoff cycle fixes nothing and just delays delivery of the
+    next legitimate message.
+    """
+    queue: asyncio.Queue[tuple[int, str]] = asyncio.Queue()
+
+    async def on_message(room_id: int, message: str) -> None:
+        if message == "malformed":
+            raise ValueError("simulated bad payload")
+        await queue.put((room_id, message))
+
+    broadcaster = RoomBroadcaster(redis_client, on_message)
+    room_id = 9006
+
+    await broadcaster.subscribe(room_id)
+    pubsub_before = broadcaster._pubsubs[room_id]
+    try:
+        await asyncio.sleep(_SUBSCRIBE_SETTLE_SECONDS)
+        await broadcaster.publish(room_id, "malformed")
+        await broadcaster.publish(room_id, "still works")
+
+        received = await asyncio.wait_for(queue.get(), timeout=_MESSAGE_TIMEOUT_SECONDS)
+        assert received == (room_id, "still works")
+
+        # No reconnect happened: the same PubSub object is still in use,
+        # unlike test_listener_reconnects_after_a_dropped_connection below,
+        # where a real connection failure replaces it via `_reconnect()`.
+        assert broadcaster._pubsubs[room_id] is pubsub_before
+    finally:
+        await broadcaster.unsubscribe(room_id)
+
+
 async def test_listener_reconnects_after_a_dropped_connection(redis_client):
     """Force-close the listener's socket mid-subscription, then prove
     delivery resumes without the background task dying.
