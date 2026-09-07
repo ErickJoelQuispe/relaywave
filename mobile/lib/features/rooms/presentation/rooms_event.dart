@@ -18,8 +18,10 @@ final class RoomCreateRequested extends RoomsEvent {
 }
 
 final class RoomJoinRequested extends RoomsEvent {
-  const RoomJoinRequested(this.roomId);
-  final int roomId;
+  const RoomJoinRequested(this.input);
+
+  /// Raw join input: a numeric room id or free text naming a room (F2-R5).
+  final String input;
   @override
-  List<Object?> get props => [roomId];
+  List<Object?> get props => [input];
 }

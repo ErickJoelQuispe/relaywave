@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -39,8 +40,8 @@ class _RoomsPaneState extends State<RoomsPane> {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => _JoinRoomDialog(
-        onSubmit: (id) {
-          context.read<RoomBloc>().add(RoomJoinRequested(id));
+        onSubmit: (input) {
+          context.read<RoomBloc>().add(RoomJoinRequested(input));
           Navigator.of(dialogContext).pop();
         },
       ),
@@ -57,6 +58,14 @@ class _RoomsPaneState extends State<RoomsPane> {
         },
       ),
     );
+  }
+
+  Future<void> _copyRoomName(String name) async {
+    await Clipboard.setData(ClipboardData(text: name));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text('Room name "$name" copied')));
   }
 
   Widget _buildBody(RoomsState state) {
@@ -102,11 +111,18 @@ class _RoomsPaneState extends State<RoomsPane> {
               : ListView.builder(
                   itemCount: rooms.length,
                   itemBuilder: (context, index) {
+                    // The canonical slug IS the shareable handle (F2-R5);
+                    // copying it is the invite affordance.
                     final tile = ListTile(
                       title: Text(rooms[index].name),
                       onTap: () => context.go(
                         '/rooms/${rooms[index].id}'
                         '?name=${Uri.encodeComponent(rooms[index].name)}',
+                      ),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.copy_outlined, size: 18),
+                        tooltip: 'Copy room name to invite others',
+                        onPressed: () => _copyRoomName(rooms[index].name),
                       ),
                     );
                     if (!shouldAnimate) return tile;
@@ -176,7 +192,7 @@ class _RoomsPaneState extends State<RoomsPane> {
 class _JoinRoomDialog extends StatefulWidget {
   const _JoinRoomDialog({required this.onSubmit});
 
-  final ValueChanged<int> onSubmit;
+  final ValueChanged<String> onSubmit;
 
   @override
   State<_JoinRoomDialog> createState() => _JoinRoomDialogState();
@@ -192,9 +208,9 @@ class _JoinRoomDialogState extends State<_JoinRoomDialog> {
   }
 
   void _submit() {
-    final id = int.tryParse(_controller.text.trim());
-    if (id == null) return;
-    widget.onSubmit(id);
+    final input = _controller.text.trim();
+    if (input.isEmpty) return;
+    widget.onSubmit(input);
   }
 
   @override
@@ -203,10 +219,9 @@ class _JoinRoomDialogState extends State<_JoinRoomDialog> {
       title: const Text('Join a room'),
       content: TextField(
         controller: _controller,
-        keyboardType: TextInputType.number,
         autofocus: true,
         decoration: const InputDecoration(
-          labelText: 'Room ID',
+          labelText: 'Room ID or name',
           border: OutlineInputBorder(),
         ),
         onSubmitted: (_) => _submit(),

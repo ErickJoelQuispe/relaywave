@@ -46,6 +46,22 @@ final class RoomRepositoryImpl implements RoomRepository {
   }
 
   @override
+  Future<Room> getRoomByName(String name) async {
+    try {
+      // The server canonicalizes the raw text into the room slug (F2-R2);
+      // the client only needs to make it a valid path segment. Encode so
+      // free text like "Project Alpha!" survives the trip unchanged.
+      final encoded = Uri.encodeComponent(name);
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/rooms/by-name/$encoded',
+      );
+      return Room.fromJson(response.data!);
+    } on DioException catch (e) {
+      throw ApiException(dioErrorMessage(e));
+    }
+  }
+
+  @override
   Future<void> joinRoom(int roomId) async {
     try {
       await _dio.post<void>('/rooms/$roomId/join');

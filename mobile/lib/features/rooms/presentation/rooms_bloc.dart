@@ -82,9 +82,21 @@ final class RoomBloc extends Bloc<RoomsEvent, RoomsState> {
     final baseRooms = _roomsOf(state);
     emit(RoomsLoaded(rooms: baseRooms, submitting: true));
     try {
-      await _repository.joinRoom(event.roomId);
-      final rooms = await _refreshedRoomsOrFetch(baseRooms, event.roomId);
-      emit(RoomsLoaded(rooms: rooms));
+      final input = event.input.trim();
+      final roomId = int.tryParse(input);
+      if (roomId != null) {
+        // All-numeric input takes the existing id-join path, unchanged
+        // (F2-R5): joining a room the caller already belongs to still
+        // surfaces the server's 409 "already a member".
+        await _repository.joinRoom(roomId);
+        emit(RoomsLoaded(rooms: await _refreshedRoomsOrFetch(baseRooms, roomId)));
+      } else {
+        // Free text: resolve the canonical slug to a room, then reuse the
+        // same id-based join.
+        final room = await _repository.getRoomByName(input);
+        await _repository.joinRoom(room.id);
+        emit(RoomsLoaded(rooms: await _refreshedRooms(baseRooms, room)));
+      }
     } on ApiException catch (e) {
       emit(RoomsLoaded(rooms: baseRooms, error: e.message));
     } catch (_) {

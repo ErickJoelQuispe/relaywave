@@ -16,17 +16,23 @@ import 'package:relaywave_mobile/features/rooms/domain/room_repository.dart';
 
 class _FakeRoomRepository implements RoomRepository {
   _FakeRoomRepository({
-    this.rooms = const <Room>[],
+    List<Room> rooms = const <Room>[],
     this.listRoomsGate,
-  });
+  }) : rooms = List.of(rooms);
 
   final List<Room> rooms;
   final Completer<List<Room>>? listRoomsGate;
 
+  /// The last input passed to [getRoomByName] (null if never called).
+  String? resolvedByName;
+
+  /// The last room id passed to [joinRoom] (null if never called).
+  int? joinedRoomId;
+
   @override
   Future<List<Room>> listRooms() async {
     if (listRoomsGate != null) return listRoomsGate!.future;
-    return rooms;
+    return List.of(rooms);
   }
 
   @override
@@ -40,8 +46,19 @@ class _FakeRoomRepository implements RoomRepository {
   }
 
   @override
-  Future<void> joinRoom(int roomId) {
-    throw UnimplementedError();
+  Future<Room> getRoomByName(String name) async {
+    resolvedByName = name;
+    // Mimic the server's canonical_slug: lowercase + collapse non-slug runs.
+    final slug = name
+        .toLowerCase()
+        .replaceAll(RegExp('[^a-z0-9]+'), '-')
+        .replaceAll(RegExp('^-|-\$'), '');
+    return rooms.firstWhere((room) => room.name == slug);
+  }
+
+  @override
+  Future<void> joinRoom(int roomId) async {
+    joinedRoomId = roomId;
   }
 }
 
@@ -495,5 +512,33 @@ void main() {
 
     gate.complete(const <Room>[]);
     await tester.pump();
+  });
+
+  testWidgets('joins a room by typed name through the repository', (
+    WidgetTester tester,
+  ) async {
+    final repository = _FakeRoomRepository(rooms: [sampleRoom]);
+    await tester.pumpWidget(
+      RelaywaveApp(
+        authRepository: _FakeAuthenticatedRepository(),
+        roomRepository: repository,
+        messageCache: _FakeMessageCache(),
+        roomCache: _FakeRoomCache(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Open the join dialog and type free text (not a numeric id).
+    await tester.tap(find.byTooltip('Join a room'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'General');
+    await tester.tap(find.text('Join'));
+    await tester.pumpAndSettle();
+
+    // The free text resolved through getRoomByName, then reused the id join,
+    // and the room list shows the canonical slug tile.
+    expect(repository.resolvedByName, 'General');
+    expect(repository.joinedRoomId, 1);
+    expect(find.text('general'), findsOneWidget);
   });
 }
