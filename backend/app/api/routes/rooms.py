@@ -171,9 +171,16 @@ async def get_room(
             status_code=status.HTTP_404_NOT_FOUND, detail="Room not found"
         )
     if room.kind == RoomKind.DM:
-        # F1-R7: title the DM from the peer's username. PR3 adds the
-        # non-member 404 guard before this resolution; group detail is open
-        # to any authenticated user and keeps peer_username null.
+        # F1-R5: DM rooms are closed — only the pair may read them. A
+        # non-member gets the same uniform 404 as an unknown room (a 403
+        # would confirm the DM exists to someone who learned its id).
+        is_member = any(m.user_id == user.id for m in room.memberships)
+        if not is_member:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Room not found"
+            )
+        # F1-R7: title the DM from the peer's username (both memberships are
+        # eager-loaded above, so this never lazy-loads).
         room.peer_username = await db.scalar(
             select(User.username)
             .join(RoomMembership, RoomMembership.user_id == User.id)
@@ -203,6 +210,14 @@ async def join_room(
     """
     room = await db.get(Room, room_id)
     if room is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Room not found"
+        )
+    if room.kind == RoomKind.DM:
+        # F1-R5: DM rooms are never open-joinable like group rooms. 404 over
+        # 403 so a caller who learned a DM's numeric id cannot confirm it
+        # exists; the pair itself never needs this endpoint (their DM already
+        # exists with both memberships).
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Room not found"
         )

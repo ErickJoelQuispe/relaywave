@@ -9,6 +9,7 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from httpx_ws.transport import ASGIWebSocketTransport
+from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
@@ -16,6 +17,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.models  # noqa: F401 — registers every table on Base.metadata
 from app.core.config import get_settings
+from app.core.redis import redis_client
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
@@ -61,6 +63,21 @@ async def db(engine):
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as session:
         yield session
+
+
+@pytest_asyncio.fixture
+async def two_sessions(engine):
+    """Two independent AsyncSessions for concurrency scenarios.
+
+    The `db` fixture yields ONE session shared by the test and the ASGI app,
+    which is exactly right for sequential requests but cannot express a race:
+    two concurrent transactions (e.g. the F1-R4 concurrent-accept scenario)
+    need two real connections so Postgres row locks actually contend. Both
+    sessions come from the same session-scoped test engine.
+    """
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session_a, session_factory() as session_b:
+        yield session_a, session_b
 
 
 @pytest_asyncio.fixture
@@ -123,7 +140,29 @@ async def _clean_tables(engine):
     async with engine.begin() as conn:
         await conn.execute(
             text(
-                "TRUNCATE users, rooms, messages, room_memberships, refresh_tokens "
+                "TRUNCATE users, rooms, messages, room_memberships, "
+                "refresh_tokens, user_relationships "
                 "RESTART IDENTITY CASCADE"
             )
         )
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _clean_rate_limit_keys():
+    """Best-effort Redis cleanup of friend-request limiter keys after a test.
+
+    TRUNCATE restarts user id sequences, so the next test's first registered
+    user is again id 1 — a leftover `rl:friend-req:1:{window}` key from a
+    429 test would throttle an unrelated test that happens to run in the
+    same 60s window. Deleting the whole `rl:friend-req:*` namespace is cheap
+    and never touches Pub/Sub channels (the WS/broadcaster tests use those,
+    and FLUSHDB/SCAN-DEL do not affect subscriptions).
+    """
+
+    yield
+    try:
+        await redis_client.ping()
+    except (RedisConnectionError, OSError):
+        return
+    async for key in redis_client.scan_iter("rl:friend-req:*", count=100):
+        await redis_client.delete(key)

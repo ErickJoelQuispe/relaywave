@@ -323,6 +323,93 @@ async def test_get_room_by_name_dm_slug_returns_404(client, db):
     assert resp.status_code == 404
 
 
+async def _make_dm_room(client, db, user1, user2):
+    """Build a DM row + memberships the way the accept flow does (F1-R4)."""
+    low, high = sorted((user1["id"], user2["id"]))
+    dm = Room(name=f"dm-{low}-{high}", kind=RoomKind.DM, created_by=None)
+    db.add(dm)
+    await db.commit()
+    await db.refresh(dm)
+    db.add_all(
+        [
+            RoomMembership(user_id=user1["id"], room_id=dm.id),
+            RoomMembership(user_id=user2["id"], room_id=dm.id),
+        ]
+    )
+    await db.commit()
+    return dm
+
+
+async def test_join_dm_room_returns_404_even_for_a_member(client, db):
+    """F1-R5: DM rooms are never open-joinable, even by their own pair."""
+    user1, email1, _, password = await _register(client)
+    user2, email2, _, _ = await _register(client)
+    user3, email3, _, _ = await _register(client)
+    h1 = await _auth_headers(client, email1, password)
+    h2 = await _auth_headers(client, email2, password)
+    h3 = await _auth_headers(client, email3, password)
+
+    dm = await _make_dm_room(client, db, user1, user2)
+
+    # A non-member who learned the numeric id, and the members themselves,
+    # all get the same uniform 404.
+    for h in (h1, h2, h3):
+        resp = await client.post(f"/rooms/{dm.id}/join", headers=h)
+        assert resp.status_code == 404, resp.text
+
+    # No membership was minted for user3.
+    listing = await client.get("/rooms", headers=h3)
+    assert dm.id not in {r["id"] for r in listing.json()}
+
+
+async def test_get_room_dm_non_member_returns_404(client, db):
+    """F1-R5: DM detail is closed to non-members with a uniform 404."""
+    user1, email1, _, password = await _register(client)
+    user2, email2, _, _ = await _register(client)
+    user3, email3, _, _ = await _register(client)
+    h1 = await _auth_headers(client, email1, password)
+    h3 = await _auth_headers(client, email3, password)
+
+    dm = await _make_dm_room(client, db, user1, user2)
+
+    member = await client.get(f"/rooms/{dm.id}", headers=h1)
+    assert member.status_code == 200
+    non_member = await client.get(f"/rooms/{dm.id}", headers=h3)
+    assert non_member.status_code == 404
+
+
+async def test_get_room_dm_messages_non_member_returns_403(client, db):
+    """F1-R5: the existing membership gate already closes DM history reads."""
+    user1, email1, _, password = await _register(client)
+    user2, email2, _, _ = await _register(client)
+    user3, email3, _, _ = await _register(client)
+    h1 = await _auth_headers(client, email1, password)
+    h3 = await _auth_headers(client, email3, password)
+
+    dm = await _make_dm_room(client, db, user1, user2)
+
+    member = await client.get(f"/rooms/{dm.id}/messages", headers=h1)
+    assert member.status_code == 200
+    non_member = await client.get(f"/rooms/{dm.id}/messages", headers=h3)
+    assert non_member.status_code == 403
+
+
+async def test_create_room_cannot_mint_a_dm(client):
+    """F1-R5/F2-R2: kind is server-set; a client payload cannot create 'dm'."""
+    _, email, _, password = await _register(client)
+    headers = await _auth_headers(client, email, password)
+
+    resp = await client.post(
+        "/rooms",
+        json={"name": "Some Group", "kind": "dm", "capacity": 2},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    # The server decides the kind; extra keys are ignored.
+    assert resp.json()["kind"] == "group"
+    assert resp.json()["name"] == "some-group"
+
+
 async def test_list_exposes_kind_and_peer_username(client, db):
     """F1-R7/F3-R1: list rows carry kind; DM rows carry the peer username."""
     user1, email1, _, password = await _register(client)

@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import auth, health, rooms, ws
+from app.api.routes import auth, friends, health, rooms, ws
 from app.core.config import get_settings
 from app.core.redis import close_redis, connect_redis
 
@@ -46,4 +46,5 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(rooms.router)
+app.include_router(friends.router)
 app.include_router(ws.router)

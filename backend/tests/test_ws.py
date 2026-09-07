@@ -86,6 +86,55 @@ async def test_ws_rejects_non_member(ws_client):
         assert exc_info.value.code == 4403
 
 
+async def test_ws_dm_room_rejects_non_member_with_4403(ws_client):
+    """F1-R5 pin: the EXISTING membership check already closes DM rooms.
+
+    ws.py gets zero changes for DMs (D7): a DM is just a room whose only
+    members are the pair, so the membership check that already closes 4403
+    for any non-member room is exactly the DM admission rule. This test pins
+    that behavior so a future refactor cannot silently open DMs to anyone
+    who learns the numeric id.
+    """
+    user1, email1, _, password = await _register(ws_client)
+    user2, email2, _, _ = await _register(ws_client)
+    user3, email3, _, _ = await _register(ws_client)
+    h1 = await _auth_headers(ws_client, email1, password)
+    h2 = await _auth_headers(ws_client, email2, password)
+    h3 = await _auth_headers(ws_client, email3, password)
+    token1 = h1["Authorization"].removeprefix("Bearer ")
+    token3 = h3["Authorization"].removeprefix("Bearer ")
+
+    # user1 -> user2 request, user2 accepts: the pair's DM is created.
+    req = await ws_client.post(
+        "/friends/requests", json={"username": user2["username"]}, headers=h1
+    )
+    assert req.status_code == 202
+    accept = await ws_client.post(
+        f"/friends/requests/{user1['id']}/accept", headers=h2
+    )
+    assert accept.status_code == 201, accept.text
+    dm_id = accept.json()["room"]["id"]
+
+    # A member holds a socket normally...
+    async with aconnect_ws(_ws_url(dm_id), client=ws_client) as ws_a:
+        await ws_a.send_text(json.dumps({"type": "auth", "token": token1}))
+        join = json.loads(await ws_a.receive_text())
+        assert join == {
+            "type": "presence",
+            "room_id": dm_id,
+            "event": "join",
+            "user_id": user1["id"],
+        }
+
+        # ...while a non-member who learned the id is closed with 4403 by the
+        # pre-existing membership check.
+        async with aconnect_ws(_ws_url(dm_id), client=ws_client) as ws_c:
+            await ws_c.send_text(json.dumps({"type": "auth", "token": token3}))
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                await ws_c.receive_text()
+            assert exc_info.value.code == 4403
+
+
 async def test_ws_message_typing_and_presence(ws_client):
     user1, email1, _, password = await _register(ws_client)
     user2, email2, _, _ = await _register(ws_client)
