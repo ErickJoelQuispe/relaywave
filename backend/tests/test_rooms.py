@@ -145,6 +145,40 @@ async def test_join_already_member_returns_409(client):
     assert second.status_code == 409
 
 
+async def test_join_is_allowed_beyond_capacity(client):
+    """F3-R3-S1: capacity is display-only; a 3rd+ member joins past capacity."""
+    _, email1, _, password = await _register(client)
+    _, email2, _, _ = await _register(client)
+    _, email3, _, _ = await _register(client)
+    _, email4, _, _ = await _register(client)
+    h1 = await _auth_headers(client, email1, password)
+    h2 = await _auth_headers(client, email2, password)
+    h3 = await _auth_headers(client, email3, password)
+    h4 = await _auth_headers(client, email4, password)
+
+    resp = await client.post(
+        "/rooms", json={"name": "cap-room", "capacity": 2}, headers=h1
+    )
+    assert resp.status_code == 201, resp.text
+    room = resp.json()
+
+    # Member 2 fills the capacity; member 3 overshoots it by numeric id.
+    assert (await client.post(f"/rooms/{room['id']}/join", headers=h2)).status_code == 201
+    assert (await client.post(f"/rooms/{room['id']}/join", headers=h3)).status_code == 201
+
+    # Member 4 joins via the slug/name lookup path, still beyond capacity.
+    by_name = await client.get("/rooms/by-name/cap-room", headers=h4)
+    assert by_name.status_code == 200
+    assert by_name.json()["id"] == room["id"]
+    assert (await client.post(f"/rooms/{room['id']}/join", headers=h4)).status_code == 201
+
+    # capacity stays 2 (display-only) and member_count tracks reality.
+    detail = await client.get(f"/rooms/{room['id']}", headers=h1)
+    assert detail.status_code == 200
+    assert detail.json()["capacity"] == 2
+    assert detail.json()["member_count"] == 4
+
+
 async def test_list_messages_requires_auth(client):
     resp = await client.get("/rooms/1/messages")
     assert resp.status_code == 401

@@ -416,6 +416,57 @@ async def test_block_severs_friendship_and_dm_memberships(client, db):
         assert dm_id not in {r["id"] for r in listing.json()}
 
 
+async def test_block_does_not_touch_shared_group_rooms(client, db):
+    """F1-R6-S3: block severs friendship + DM only, never shared group membership."""
+    a, email_a, _, password_a = await _register(client)
+    b, email_b, _, password_b = await _register(client)
+    h_a = await _auth_headers(client, email_a, password_a)
+    h_b = await _auth_headers(client, email_b, password_b)
+
+    accept = await _make_friends(client, a, b, h_a, h_b)
+    dm_id = accept["room"]["id"]
+
+    # A and B also share a GROUP room: A creates it, B joins.
+    group = await client.post(
+        "/rooms", json={"name": f"shared-{uuid4().hex[:8]}"}, headers=h_a
+    )
+    assert group.status_code == 201, group.text
+    group_id = group.json()["id"]
+    assert (
+        await client.post(f"/rooms/{group_id}/join", headers=h_b)
+    ).status_code == 201
+
+    # B blocks A: the friendship flips to BLOCKED and the DM is severed...
+    assert (
+        await client.post(
+            "/friends/blocks", json={"user_id": a["id"]}, headers=h_b
+        )
+    ).status_code == 204
+    row = (await db.execute(select(UserRelationship))).scalars().one()
+    assert row.status == RelationshipStatus.BLOCKED
+    dm_members = (
+        await db.execute(
+            select(func.count())
+            .select_from(RoomMembership)
+            .where(RoomMembership.room_id == dm_id)
+        )
+    ).scalar()
+    assert dm_members == 0
+
+    # ...but the shared group room keeps BOTH members.
+    group_members = (
+        await db.execute(
+            select(func.count())
+            .select_from(RoomMembership)
+            .where(RoomMembership.room_id == group_id)
+        )
+    ).scalar()
+    assert group_members == 2
+    for h in (h_a, h_b):
+        listing = await client.get("/rooms", headers=h)
+        assert group_id in {r["id"] for r in listing.json()}
+
+
 async def test_block_requires_an_existing_relationship(client, db):
     a, email_a, _, password_a = await _register(client)
     b, email_b, _, password_b = await _register(client)
