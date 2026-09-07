@@ -64,6 +64,13 @@ class Room(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
+    # Transient response-only field — deliberately NOT a column (no Mapped
+    # annotation, so SQLAlchemy leaves it as a plain class attribute). Route
+    # handlers resolve and set it for `kind='dm'` rows so the wire payload
+    # (RoomResponse.peer_username, F1-R7) carries the peer's username while
+    # the client never sees or displays the internal `dm-*` auto-name.
+    peer_username = None
+
     memberships: Mapped[list[RoomMembership]] = relationship(back_populates="room")
     messages: Mapped[list[Message]] = relationship(back_populates="room")
 

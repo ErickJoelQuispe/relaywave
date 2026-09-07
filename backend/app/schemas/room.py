@@ -39,20 +39,31 @@ class RoomCreate(BaseModel):
 
 
 class RoomResponse(BaseModel):
-    """Public representation of a room."""
+    """Public representation of a room.
+
+    `kind` discriminates the DM/group list split (F1-R7) and `peer_username`
+    — resolved server-side, set on the ORM row by the route handlers — lets
+    clients title DM rows without ever exposing the internal `dm-*` name.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     name: str
+    kind: str
+    peer_username: str | None
     created_by: int | None
     created_at: datetime
 
 
 class RoomDetailResponse(RoomResponse):
-    """A room plus how many members it has (see `Room.member_count`)."""
+    """A room plus member count and display-only capacity metadata (F3-R3).
+
+    `capacity` is informational only: joins and WS admission never check it.
+    """
 
     member_count: int
+    capacity: int | None
 
 
 class RoomMembershipResponse(BaseModel):

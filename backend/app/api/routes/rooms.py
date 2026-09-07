@@ -31,6 +31,36 @@ from app.schemas.room import (
 router = APIRouter(prefix="/rooms", tags=["rooms"])
 
 
+async def _attach_peer_usernames(
+    db: AsyncSession, user_id: int, rooms: list[Room]
+) -> None:
+    """Resolve `peer_username` for every DM room in `rooms` (F1-R7).
+
+    DM rooms are membership-gated and have exactly two members — the caller
+    and the peer — so the peer is the one membership row whose user is not
+    the caller. One extra query covers all DM rows of a list response; group
+    rooms keep `peer_username` null. Client payloads therefore never carry
+    the internal `dm-{low}-{high}` auto-name.
+    """
+    dm_ids = [room.id for room in rooms if room.kind == RoomKind.DM]
+    if not dm_ids:
+        return
+    result = await db.execute(
+        select(RoomMembership.room_id, User.username)
+        .join(User, User.id == RoomMembership.user_id)
+        .where(
+            RoomMembership.room_id.in_(dm_ids),
+            RoomMembership.user_id != user_id,
+        )
+    )
+    peer_by_room: dict[int, str] = {}
+    for room_id, username in result.all():
+        peer_by_room[room_id] = username
+    for room in rooms:
+        if room.id in peer_by_room:
+            room.peer_username = peer_by_room[room.id]
+
+
 @router.post(
     "", response_model=RoomResponse, status_code=status.HTTP_201_CREATED
 )
@@ -85,7 +115,9 @@ async def list_rooms(
         .where(RoomMembership.user_id == user.id)
         .order_by(Room.created_at.desc(), Room.id.desc())
     )
-    return list(result.scalars().all())
+    rooms = list(result.scalars().all())
+    await _attach_peer_usernames(db, user.id, rooms)
+    return rooms
 
 
 @router.get("/by-name/{name}", response_model=RoomResponse)
@@ -137,6 +169,18 @@ async def get_room(
     if room is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Room not found"
+        )
+    if room.kind == RoomKind.DM:
+        # F1-R7: title the DM from the peer's username. PR3 adds the
+        # non-member 404 guard before this resolution; group detail is open
+        # to any authenticated user and keeps peer_username null.
+        room.peer_username = await db.scalar(
+            select(User.username)
+            .join(RoomMembership, RoomMembership.user_id == User.id)
+            .where(
+                RoomMembership.room_id == room_id,
+                RoomMembership.user_id != user.id,
+            )
         )
     return room
 

@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from app.models.message import Message
 from app.models.room import Room, RoomKind
+from app.models.room_membership import RoomMembership
 
 
 async def _register(client, email=None, username=None, password="supersecret123"):
@@ -320,3 +321,89 @@ async def test_get_room_by_name_dm_slug_returns_404(client, db):
 
     resp = await client.get("/rooms/by-name/dm-5-12", headers=headers)
     assert resp.status_code == 404
+
+
+async def test_list_exposes_kind_and_peer_username(client, db):
+    """F1-R7/F3-R1: list rows carry kind; DM rows carry the peer username."""
+    user1, email1, _, password = await _register(client)
+    user2, email2, _, _ = await _register(client)
+    h1 = await _auth_headers(client, email1, password)
+
+    group, _ = await _create_room(client, h1, name="Project Alpha!")
+
+    # Build a DM room the way the accept flow will (PR3): one row with the
+    # auto-name dm-{low}-{high}, created_by NULL, both users joined.
+    low, high = sorted((user1["id"], user2["id"]))
+    dm = Room(name=f"dm-{low}-{high}", kind=RoomKind.DM, created_by=None)
+    db.add(dm)
+    await db.commit()
+    await db.refresh(dm)
+    db.add_all(
+        [
+            RoomMembership(user_id=user1["id"], room_id=dm.id),
+            RoomMembership(user_id=user2["id"], room_id=dm.id),
+        ]
+    )
+    await db.commit()
+
+    listing = await client.get("/rooms", headers=h1)
+    assert listing.status_code == 200
+    by_id = {r["id"]: r for r in listing.json()}
+
+    assert by_id[group["id"]]["kind"] == "group"
+    assert by_id[group["id"]]["peer_username"] is None
+    assert by_id[dm.id]["kind"] == "dm"
+    assert by_id[dm.id]["peer_username"] == user2["username"]
+    assert by_id[dm.id]["name"] == f"dm-{low}-{high}"  # never displayed client-side
+
+
+async def test_get_room_detail_exposes_kind_capacity_and_peer(client):
+    """F3-R3/F1-R7: detail carries kind + capacity; DM detail names the peer."""
+    _, email1, _, password = await _register(client)
+    _, email2, _, _ = await _register(client)
+    h1 = await _auth_headers(client, email1, password)
+
+    resp = await client.post(
+        "/rooms", json={"name": "Cap Room", "capacity": 10}, headers=h1
+    )
+    assert resp.status_code == 201, resp.text
+    room = resp.json()
+
+    detail = await client.get(f"/rooms/{room['id']}", headers=h1)
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["kind"] == "group"
+    assert body["capacity"] == 10
+    assert body["member_count"] == 1
+    assert body["peer_username"] is None
+
+
+async def test_get_room_detail_dm_names_peer(client, db):
+    """F3-R1: a DM row's detail resolves peer_username for a member."""
+    user1, email1, _, password = await _register(client)
+    user2, email2, _, _ = await _register(client)
+    h1 = await _auth_headers(client, email1, password)
+
+    dm = Room(
+        name=f"dm-{min(user1['id'], user2['id'])}-{max(user1['id'], user2['id'])}",
+        kind=RoomKind.DM,
+        created_by=None,
+    )
+    db.add(dm)
+    await db.commit()
+    await db.refresh(dm)
+    db.add_all(
+        [
+            RoomMembership(user_id=user1["id"], room_id=dm.id),
+            RoomMembership(user_id=user2["id"], room_id=dm.id),
+        ]
+    )
+    await db.commit()
+
+    detail = await client.get(f"/rooms/{dm.id}", headers=h1)
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["kind"] == "dm"
+    assert body["capacity"] is None
+    assert body["member_count"] == 2
+    assert body["peer_username"] == user2["username"]
