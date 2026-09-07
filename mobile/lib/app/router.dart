@@ -10,6 +10,7 @@ import '../features/auth/presentation/login_screen.dart';
 import '../features/auth/presentation/register_screen.dart';
 import '../features/auth/presentation/splash_screen.dart';
 import '../features/chat/presentation/chat_screen.dart';
+import '../features/friends/presentation/friends_pane.dart';
 import '../features/rooms/presentation/rooms_pane.dart';
 import 'responsive_shell.dart';
 
@@ -67,6 +68,10 @@ GoRouter buildRouter(AuthBloc authBloc) {
           GoRoute(
             path: '/',
             builder: (context, state) => const RoomsPane(),
+          ),
+          GoRoute(
+            path: '/friends',
+            builder: (context, state) => const FriendsPane(),
           ),
           GoRoute(
             path: '/rooms/:id',

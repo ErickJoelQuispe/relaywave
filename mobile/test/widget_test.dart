@@ -10,6 +10,8 @@ import 'package:relaywave_mobile/features/auth/domain/user.dart';
 import 'package:relaywave_mobile/features/chat/data/message_cache.dart';
 import 'package:relaywave_mobile/features/chat/domain/chat_repository.dart';
 import 'package:relaywave_mobile/features/chat/domain/message.dart';
+import 'package:relaywave_mobile/features/friends/domain/friend.dart';
+import 'package:relaywave_mobile/features/friends/domain/friends_repository.dart';
 import 'package:relaywave_mobile/features/rooms/data/room_cache.dart';
 import 'package:relaywave_mobile/features/rooms/domain/room.dart';
 import 'package:relaywave_mobile/features/rooms/domain/room_repository.dart';
@@ -211,6 +213,96 @@ class _FakeRoomCache implements RoomCache {
 
   @override
   Future<void> clear() async => rooms.clear();
+}
+
+class _FakeFriendsRepository implements FriendsRepository {
+  _FakeFriendsRepository({
+    List<Friend> friends = const <Friend>[],
+    List<FriendRequest> incoming = const <FriendRequest>[],
+    List<FriendRequest> outgoing = const <FriendRequest>[],
+    List<Friend> blocked = const <Friend>[],
+  }) : friends = List.of(friends),
+       incoming = List.of(incoming),
+       outgoing = List.of(outgoing),
+       blocked = List.of(blocked);
+
+  final List<Friend> friends;
+  final List<FriendRequest> incoming;
+  final List<FriendRequest> outgoing;
+  final List<Friend> blocked;
+
+  final List<String> sentUsernames = [];
+  int? acceptedUserId;
+  int? declinedUserId;
+  int? removedUserId;
+  int? unblockedUserId;
+
+  @override
+  Future<void> sendRequest(String username) async {
+    sentUsernames.add(username);
+    outgoing.add(
+      FriendRequest(
+        id: 900 + outgoing.length,
+        username: username,
+        createdAt: DateTime.utc(2026, 1, 1),
+      ),
+    );
+  }
+
+  @override
+  Future<List<FriendRequest>> listRequests({
+    required String direction,
+  }) async {
+    return direction == 'incoming'
+        ? List.of(incoming)
+        : List.of(outgoing);
+  }
+
+  @override
+  Future<Room> acceptRequest(int userId) async {
+    acceptedUserId = userId;
+    final request = incoming.firstWhere((r) => r.id == userId);
+    incoming.remove(request);
+    friends.add(
+      Friend(id: request.id, username: request.username, roomId: 500),
+    );
+    return Room(
+      id: 500,
+      name: 'dm-1-2',
+      kind: 'dm',
+      peerUsername: request.username,
+      createdAt: DateTime.utc(2026, 1, 1),
+    );
+  }
+
+  @override
+  Future<void> declineRequest(int userId) async {
+    declinedUserId = userId;
+    incoming.removeWhere((r) => r.id == userId);
+  }
+
+  @override
+  Future<List<Friend>> listFriends() async => List.of(friends);
+
+  @override
+  Future<void> removeFriend(int userId) async {
+    removedUserId = userId;
+    friends.removeWhere((f) => f.id == userId);
+  }
+
+  @override
+  Future<void> block(int userId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<Friend>> listBlocked() async => List.of(blocked);
+
+  @override
+  Future<void> unblock(int userId) async {
+    unblockedUserId = userId;
+    blocked.removeWhere((f) => f.id == userId);
+  }
 }
 
 void main() {
@@ -577,5 +669,179 @@ void main() {
     await tester.tap(find.byTooltip('Room info'));
     await tester.pumpAndSettle();
     expect(find.text('~1 connected — estimate'), findsOneWidget);
+  });
+
+  testWidgets('splits DM and group rooms from cache before the network returns',
+      (tester) async {
+    // F3-R4: kind + peer_username are persisted in the Drift cache, so a
+    // relaunch renders the split from cache alone while the refresh is in
+    // flight — the DM must never surface in the group list titled by its
+    // internal auto-name.
+    final gate = Completer<List<Room>>();
+    final dm = Room(
+      id: 2,
+      name: 'dm-5-12',
+      kind: 'dm',
+      peerUsername: 'alice',
+      createdAt: DateTime.utc(2026, 1, 2),
+    );
+    final group = Room(
+      id: 1,
+      name: 'general',
+      createdAt: DateTime.utc(2026, 1, 1),
+    );
+    await tester.pumpWidget(
+      RelaywaveApp(
+        authRepository: _FakeAuthenticatedRepository(),
+        roomRepository: _FakeRoomRepository(listRoomsGate: gate),
+        messageCache: _FakeMessageCache(),
+        roomCache: _FakeRoomCache(rooms: [dm, group]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Direct messages'), findsOneWidget);
+    expect(find.text('alice'), findsOneWidget);
+    expect(find.text('Group rooms'), findsOneWidget);
+    expect(find.text('general'), findsOneWidget);
+    // The internal DM auto-name is never displayed (F1-R7).
+    expect(find.text('dm-5-12'), findsNothing);
+
+    gate.complete(<Room>[group]);
+    await tester.pumpAndSettle();
+    expect(find.text('alice'), findsNothing);
+    expect(find.text('general'), findsOneWidget);
+  });
+
+  testWidgets('sends a friend request by username from the friends pane', (
+    tester,
+  ) async {
+    final friendsRepository = _FakeFriendsRepository();
+    await tester.pumpWidget(
+      RelaywaveApp(
+        authRepository: _FakeAuthenticatedRepository(),
+        roomRepository: _FakeRoomRepository(),
+        friendsRepository: friendsRepository,
+        messageCache: _FakeMessageCache(),
+        roomCache: _FakeRoomCache(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Friends'));
+    await tester.pumpAndSettle();
+    expect(find.text('No friends yet. Add someone by username.'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Add a friend'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'bob');
+    await tester.tap(find.text('Send request'));
+    await tester.pumpAndSettle();
+
+    expect(friendsRepository.sentUsernames, ['bob']);
+    expect(find.text('Outgoing requests'), findsOneWidget);
+    expect(find.text('bob'), findsOneWidget);
+    expect(find.text('Pending'), findsOneWidget);
+  });
+
+  testWidgets('accepting an incoming request moves the peer into friends', (
+    tester,
+  ) async {
+    final friendsRepository = _FakeFriendsRepository(
+      incoming: [
+        FriendRequest(
+          id: 7,
+          username: 'carol',
+          createdAt: DateTime.utc(2026, 1, 1),
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      RelaywaveApp(
+        authRepository: _FakeAuthenticatedRepository(),
+        roomRepository: _FakeRoomRepository(),
+        friendsRepository: friendsRepository,
+        messageCache: _FakeMessageCache(),
+        roomCache: _FakeRoomCache(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Friends'));
+    await tester.pumpAndSettle();
+    expect(find.text('Incoming requests'), findsOneWidget);
+    expect(find.text('carol'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Accept'));
+    await tester.pumpAndSettle();
+
+    expect(friendsRepository.acceptedUserId, 7);
+    expect(find.text('carol'), findsOneWidget);
+    expect(find.text('Direct message'), findsOneWidget);
+  });
+
+  testWidgets('decline removes an incoming request', (tester) async {
+    final friendsRepository = _FakeFriendsRepository(
+      incoming: [
+        FriendRequest(
+          id: 7,
+          username: 'carol',
+          createdAt: DateTime.utc(2026, 1, 1),
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      RelaywaveApp(
+        authRepository: _FakeAuthenticatedRepository(),
+        roomRepository: _FakeRoomRepository(),
+        friendsRepository: friendsRepository,
+        messageCache: _FakeMessageCache(),
+        roomCache: _FakeRoomCache(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Friends'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Decline'));
+    await tester.pumpAndSettle();
+
+    expect(friendsRepository.declinedUserId, 7);
+    expect(find.text('carol'), findsNothing);
+  });
+
+  testWidgets('remove friend and unblock flows reach the repository', (
+    tester,
+  ) async {
+    final friendsRepository = _FakeFriendsRepository(
+      friends: [const Friend(id: 7, username: 'carol', roomId: 500)],
+      blocked: [const Friend(id: 3, username: 'dave')],
+    );
+    await tester.pumpWidget(
+      RelaywaveApp(
+        authRepository: _FakeAuthenticatedRepository(),
+        roomRepository: _FakeRoomRepository(),
+        friendsRepository: friendsRepository,
+        messageCache: _FakeMessageCache(),
+        roomCache: _FakeRoomCache(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Friends'));
+    await tester.pumpAndSettle();
+    expect(find.text('carol'), findsOneWidget);
+    expect(find.text('Blocked'), findsOneWidget);
+    expect(find.text('dave'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Remove friend'));
+    await tester.pumpAndSettle();
+    expect(friendsRepository.removedUserId, 7);
+    expect(find.text('carol'), findsNothing);
+
+    await tester.tap(find.byTooltip('Unblock'));
+    await tester.pumpAndSettle();
+    expect(friendsRepository.unblockedUserId, 3);
+    expect(find.text('dave'), findsNothing);
   });
 }

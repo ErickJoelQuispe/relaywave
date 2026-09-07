@@ -100,6 +100,39 @@ class _RoomsPaneState extends State<RoomsPane> {
     final shouldAnimate = !_roomsAnimatedOnce && rooms.isNotEmpty;
     if (shouldAnimate) _roomsAnimatedOnce = true;
 
+    // F1-R7: DM rows render under a "Direct messages" section titled with the
+    // peer username; group rooms keep the existing slug-name list.
+    final dms = rooms.where((room) => room.kind == 'dm').toList();
+    final groups = rooms.where((room) => room.kind != 'dm').toList();
+
+    final children = <Widget>[];
+    var tileIndex = 0;
+    Widget wrap(int index, Widget tile) {
+      if (!shouldAnimate) return tile;
+      return tile
+          .animate(delay: (30 * index).clamp(0, 250).ms)
+          .fadeIn(duration: 200.ms, curve: Curves.easeOut)
+          .slideX(
+            begin: 0.05,
+            end: 0,
+            duration: 200.ms,
+            curve: Curves.easeOut,
+          );
+    }
+
+    if (dms.isNotEmpty) {
+      children.add(const _SectionHeader('Direct messages'));
+      for (final room in dms) {
+        children.add(wrap(tileIndex++, _roomTile(room, shareable: false)));
+      }
+    }
+    if (groups.isNotEmpty && dms.isNotEmpty) {
+      children.add(const _SectionHeader('Group rooms'));
+    }
+    for (final room in groups) {
+      children.add(wrap(tileIndex++, _roomTile(room, shareable: true)));
+    }
+
     return Column(
       children: [
         if (submitting) const LinearProgressIndicator(),
@@ -108,37 +141,25 @@ class _RoomsPaneState extends State<RoomsPane> {
               ? const Center(
                   child: Text('No rooms yet. Create or join one.'),
                 )
-              : ListView.builder(
-                  itemCount: rooms.length,
-                  itemBuilder: (context, index) {
-                    // The canonical slug IS the shareable handle (F2-R5);
-                    // copying it is the invite affordance.
-                    final tile = ListTile(
-                      title: Text(rooms[index].displayTitle),
-                      onTap: () => context.go('/rooms/${rooms[index].id}'),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.copy_outlined, size: 18),
-                        tooltip: 'Copy room name to invite others',
-                        onPressed: () => _copyRoomName(rooms[index].name),
-                      ),
-                    );
-                    if (!shouldAnimate) return tile;
-                    return tile
-                        .animate(delay: (30 * index).clamp(0, 250).ms)
-                        .fadeIn(
-                          duration: 200.ms,
-                          curve: Curves.easeOut,
-                        )
-                        .slideX(
-                          begin: 0.05,
-                          end: 0,
-                          duration: 200.ms,
-                          curve: Curves.easeOut,
-                        );
-                  },
-                ),
+              : ListView(children: children),
         ),
       ],
+    );
+  }
+
+  Widget _roomTile(Room room, {required bool shareable}) {
+    return ListTile(
+      title: Text(room.displayTitle),
+      onTap: () => context.go('/rooms/${room.id}'),
+      // The canonical slug IS the shareable handle (F2-R5) — but only for
+      // group rooms; a DM's internal name is not a joinable address.
+      trailing: !shareable
+          ? null
+          : IconButton(
+              icon: const Icon(Icons.copy_outlined, size: 18),
+              tooltip: 'Copy room name to invite others',
+              onPressed: () => _copyRoomName(room.name),
+            ),
     );
   }
 
@@ -166,6 +187,11 @@ class _RoomsPaneState extends State<RoomsPane> {
               onPressed: _showJoinRoomDialog,
             ),
             IconButton(
+              icon: const Icon(Icons.people_outline),
+              tooltip: 'Friends',
+              onPressed: () => context.go('/friends'),
+            ),
+            IconButton(
               icon: const Icon(Icons.logout),
               tooltip: 'Log out',
               onPressed: () =>
@@ -181,6 +207,25 @@ class _RoomsPaneState extends State<RoomsPane> {
           onPressed: _showCreateRoomDialog,
           child: const Icon(Icons.add),
         ),
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: Text(
+        title,
+        style: textTheme.labelLarge?.copyWith(color: colorScheme.primary),
       ),
     );
   }

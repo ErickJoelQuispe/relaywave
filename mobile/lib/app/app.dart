@@ -14,6 +14,9 @@ import '../features/auth/presentation/auth_event.dart';
 import '../features/chat/data/message_cache.dart';
 import '../features/chat/data/ws_chat_repository_impl.dart';
 import '../features/chat/domain/chat_repository.dart';
+import '../features/friends/data/friends_repository_impl.dart';
+import '../features/friends/domain/friends_repository.dart';
+import '../features/friends/presentation/friends_bloc.dart';
 import '../features/rooms/data/room_cache.dart';
 import '../features/rooms/data/room_repository_impl.dart';
 import '../features/rooms/domain/room_repository.dart';
@@ -27,6 +30,7 @@ class RelaywaveApp extends StatefulWidget {
     this.authRepository,
     this.roomRepository,
     this.chatRepository,
+    this.friendsRepository,
     this.messageCache,
     this.roomCache,
   });
@@ -34,6 +38,7 @@ class RelaywaveApp extends StatefulWidget {
   final AuthRepository? authRepository;
   final RoomRepository? roomRepository;
   final ChatRepository? chatRepository;
+  final FriendsRepository? friendsRepository;
   final MessageCache? messageCache;
   final RoomCache? roomCache;
 
@@ -47,11 +52,13 @@ class _RelaywaveAppState extends State<RelaywaveApp> {
   late final AuthRepository _authRepository;
   late final RoomRepository _roomRepository;
   late final ChatRepository _chatRepository;
+  late final FriendsRepository _friendsRepository;
   late final AppDatabase _database;
   late final MessageCache _messageCache;
   late final RoomCache _roomCache;
   late final AuthBloc _authBloc;
   late final RoomBloc _roomBloc;
+  late final FriendsBloc _friendsBloc;
   late final GoRouter _router;
 
   @override
@@ -73,13 +80,18 @@ class _RelaywaveAppState extends State<RelaywaveApp> {
         widget.roomRepository ?? RoomRepositoryImpl(dio: _apiClient.dio);
     _chatRepository = widget.chatRepository ??
         ChatRepositoryImpl(dio: _apiClient.dio, tokenStorage: _tokenStorage);
+    _friendsRepository =
+        widget.friendsRepository ??
+        FriendsRepositoryImpl(dio: _apiClient.dio);
     _authBloc = AuthBloc(_authRepository)..add(const AuthCheckRequested());
     _roomBloc = RoomBloc(_roomRepository, cache: _roomCache);
+    _friendsBloc = FriendsBloc(_friendsRepository);
     _router = buildRouter(_authBloc);
   }
 
   @override
   void dispose() {
+    _friendsBloc.close();
     _roomBloc.close();
     _authBloc.close();
     unawaited(_database.close());
@@ -92,8 +104,10 @@ class _RelaywaveAppState extends State<RelaywaveApp> {
       value: _authRepository,
       child: RepositoryProvider<RoomRepository>.value(
         value: _roomRepository,
-          child: RepositoryProvider<ChatRepository>.value(
-            value: _chatRepository,
+        child: RepositoryProvider<ChatRepository>.value(
+          value: _chatRepository,
+          child: RepositoryProvider<FriendsRepository>.value(
+            value: _friendsRepository,
             child: RepositoryProvider<MessageCache>.value(
               value: _messageCache,
               child: RepositoryProvider<RoomCache>.value(
@@ -102,18 +116,22 @@ class _RelaywaveAppState extends State<RelaywaveApp> {
                   value: _authBloc,
                   child: BlocProvider<RoomBloc>.value(
                     value: _roomBloc,
-                    child: MaterialApp.router(
-                      title: 'Relaywave',
-                      theme: AppTheme.light,
-                      darkTheme: AppTheme.dark,
-                      themeMode: ThemeMode.system,
-                      routerConfig: _router,
+                    child: BlocProvider<FriendsBloc>.value(
+                      value: _friendsBloc,
+                      child: MaterialApp.router(
+                        title: 'Relaywave',
+                        theme: AppTheme.light,
+                        darkTheme: AppTheme.dark,
+                        themeMode: ThemeMode.system,
+                        routerConfig: _router,
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
           ),
+        ),
       ),
     );
   }
