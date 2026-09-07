@@ -5,5 +5,13 @@ from app.models.refresh_token import RefreshToken
 from app.models.room import Room
 from app.models.room_membership import RoomMembership
 from app.models.user import User
+from app.models.user_relationship import UserRelationship
 
-__all__ = ["Message", "RefreshToken", "Room", "RoomMembership", "User"]
+__all__ = [
+    "Message",
+    "RefreshToken",
+    "Room",
+    "RoomMembership",
+    "User",
+    "UserRelationship",
+]
