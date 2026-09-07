@@ -41,8 +41,8 @@ class _FakeRoomRepository implements RoomRepository {
   }
 
   @override
-  Future<Room> getRoom(int roomId) {
-    throw UnimplementedError();
+  Future<Room> getRoom(int roomId) async {
+    return rooms.firstWhere((room) => room.id == roomId);
   }
 
   @override
@@ -540,5 +540,42 @@ void main() {
     expect(repository.resolvedByName, 'General');
     expect(repository.joinedRoomId, 1);
     expect(find.text('general'), findsOneWidget);
+  });
+
+  testWidgets('chat header titles from server detail and labels the estimate',
+      (tester) async {
+    final chatRepository = _FakeChatRepository();
+    await tester.pumpWidget(
+      RelaywaveApp(
+        authRepository: _FakeAuthenticatedRepository(),
+        roomRepository: _FakeRoomRepository(rooms: [sampleRoom]),
+        chatRepository: chatRepository,
+        messageCache: _FakeMessageCache(),
+        roomCache: _FakeRoomCache(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('general'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    chatRepository.add(const ChatSocketConnected());
+    await tester.pump();
+    // A presence delta arrives on the live socket: 1 user online.
+    chatRepository.add(const ChatSocketPresence('join', 42));
+    await tester.pump();
+    await tester.pump();
+
+    // F3-R1: title comes from authoritative detail (no ?name= on the route),
+    // and the presence-delta count carries the approximate qualifier.
+    expect(find.text('general'), findsOneWidget);
+    expect(find.text('~1 online (estimate)'), findsOneWidget);
+
+    // F3-R2: opening the room-info panel shows the same resolved title and
+    // the estimate-labeled connected count.
+    await tester.tap(find.byTooltip('Room info'));
+    await tester.pumpAndSettle();
+    expect(find.text('~1 connected — estimate'), findsOneWidget);
   });
 }

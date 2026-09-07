@@ -72,10 +72,11 @@ GoRouter buildRouter(AuthBloc authBloc) {
             path: '/rooms/:id',
             pageBuilder: (context, state) {
               final roomId = int.parse(state.pathParameters['id']!);
-              final roomName = state.uri.queryParameters['name'] ?? 'Room';
+              // F3-R1: no ?name= query hack — the chat screen resolves the
+              // title from server detail (or the cache) itself.
               return CustomTransitionPage(
                 key: state.pageKey,
-                child: ChatScreen(roomId: roomId, roomName: roomName),
+                child: ChatScreen(roomId: roomId),
                 transitionsBuilder:
                     (context, animation, secondaryAnimation, child) =>
                         SharedAxisTransition(

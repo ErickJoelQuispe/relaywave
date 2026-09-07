@@ -114,11 +114,8 @@ class _RoomsPaneState extends State<RoomsPane> {
                     // The canonical slug IS the shareable handle (F2-R5);
                     // copying it is the invite affordance.
                     final tile = ListTile(
-                      title: Text(rooms[index].name),
-                      onTap: () => context.go(
-                        '/rooms/${rooms[index].id}'
-                        '?name=${Uri.encodeComponent(rooms[index].name)}',
-                      ),
+                      title: Text(rooms[index].displayTitle),
+                      onTap: () => context.go('/rooms/${rooms[index].id}'),
                       trailing: IconButton(
                         icon: const Icon(Icons.copy_outlined, size: 18),
                         tooltip: 'Copy room name to invite others',

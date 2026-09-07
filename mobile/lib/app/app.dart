@@ -92,25 +92,28 @@ class _RelaywaveAppState extends State<RelaywaveApp> {
       value: _authRepository,
       child: RepositoryProvider<RoomRepository>.value(
         value: _roomRepository,
-        child: RepositoryProvider<ChatRepository>.value(
-          value: _chatRepository,
-          child: RepositoryProvider<MessageCache>.value(
-            value: _messageCache,
-            child: BlocProvider<AuthBloc>.value(
-              value: _authBloc,
-              child: BlocProvider<RoomBloc>.value(
-                value: _roomBloc,
-                child: MaterialApp.router(
-                  title: 'Relaywave',
-                  theme: AppTheme.light,
-                  darkTheme: AppTheme.dark,
-                  themeMode: ThemeMode.system,
-                  routerConfig: _router,
+          child: RepositoryProvider<ChatRepository>.value(
+            value: _chatRepository,
+            child: RepositoryProvider<MessageCache>.value(
+              value: _messageCache,
+              child: RepositoryProvider<RoomCache>.value(
+                value: _roomCache,
+                child: BlocProvider<AuthBloc>.value(
+                  value: _authBloc,
+                  child: BlocProvider<RoomBloc>.value(
+                    value: _roomBloc,
+                    child: MaterialApp.router(
+                      title: 'Relaywave',
+                      theme: AppTheme.light,
+                      darkTheme: AppTheme.dark,
+                      themeMode: ThemeMode.system,
+                      routerConfig: _router,
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
-        ),
       ),
     );
   }

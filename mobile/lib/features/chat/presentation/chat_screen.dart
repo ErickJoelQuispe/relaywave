@@ -8,6 +8,11 @@ import '../../auth/presentation/auth_bloc.dart';
 import '../../auth/presentation/auth_state.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/shimmer_list_placeholder.dart';
+import '../../rooms/data/room_cache.dart';
+import '../../rooms/domain/room_repository.dart';
+import '../../rooms/presentation/room_info_cubit.dart';
+import '../../rooms/presentation/room_info_panel.dart';
+import '../../rooms/presentation/room_info_state.dart';
 import '../data/message_cache.dart';
 import '../domain/chat_repository.dart';
 import '../domain/message.dart';
@@ -17,10 +22,9 @@ import 'chat_state.dart';
 import 'typing_indicator.dart';
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, required this.roomId, required this.roomName});
+  const ChatScreen({super.key, required this.roomId});
 
   final int roomId;
-  final String roomName;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -36,16 +40,25 @@ class _ChatScreenState extends State<ChatScreen> {
         cache: context.read<MessageCache>(),
         roomId: widget.roomId,
       )..add(const ChatConnectRequested()),
-      child: _ChatView(roomId: widget.roomId, roomName: widget.roomName),
+      child: BlocProvider(
+        // F3-R1: the header title and the room-info panel share one source —
+        // fresh detail, else the cached row, else the generic `Room #id`
+        // placeholder. The chat route passes only the room id now.
+        create: (_) => RoomInfoCubit(
+          repository: context.read<RoomRepository>(),
+          cache: context.read<RoomCache>(),
+          roomId: widget.roomId,
+        )..load(),
+        child: _ChatView(roomId: widget.roomId),
+      ),
     );
   }
 }
 
 class _ChatView extends StatefulWidget {
-  const _ChatView({required this.roomId, required this.roomName});
+  const _ChatView({required this.roomId});
 
   final int roomId;
-  final String roomName;
 
   @override
   State<_ChatView> createState() => _ChatViewState();
@@ -71,6 +84,17 @@ class _ChatViewState extends State<_ChatView> {
     _inputController.clear();
   }
 
+  /// Current presence-delta count from the live socket, or null while the
+  /// connection is not active. Read-only (the caller watches ChatBloc for
+  /// rebuilds); safe to call outside build, e.g. when opening the panel.
+  int? _onlineCountOf(BuildContext context) {
+    final state = context.read<ChatBloc>().state;
+    return switch (state) {
+      ChatActive(:final onlineUserIds) => onlineUserIds.length,
+      _ => null,
+    };
+  }
+
   Future<void> _copyRoomId() async {
     await Clipboard.setData(ClipboardData(text: '${widget.roomId}'));
     if (!mounted) return;
@@ -81,19 +105,44 @@ class _ChatViewState extends State<_ChatView> {
       );
   }
 
+  Future<void> _openRoomInfo() async {
+    // F3-R1: every open fetches fresh detail from the server.
+    await context.read<RoomInfoCubit>().refresh();
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => BlocProvider.value(
+        // The sheet is pushed onto the root navigator, above this cubit's
+        // provider — re-expose it so the panel can read and refresh it.
+        value: context.read<RoomInfoCubit>(),
+        child: RoomInfoPanel(
+          roomId: widget.roomId,
+          onlineCount: _onlineCountOf(context),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final myUserId = context.select<AuthBloc, int?>((bloc) {
       final s = bloc.state;
       return s is AuthAuthenticated ? s.user.id : null;
     });
-    final state = context.watch<ChatBloc>().state;
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
-    final onlineCount = switch (state) {
+    // The ChatBloc watch keeps the header count live as presence deltas
+    // arrive; the read-only helper is safe to call outside build (panel).
+    final onlineCount = switch (context.watch<ChatBloc>().state) {
       ChatActive(:final onlineUserIds) => onlineUserIds.length,
       _ => null,
+    };
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final infoState = context.watch<RoomInfoCubit>().state;
+    // F3-R1: authoritative detail, else cache, else the generic placeholder
+    // — never a name fabricated from the URL (the ?name= hack is gone).
+    final roomTitle = switch (infoState) {
+      RoomInfoLoaded(:final room) => room.displayTitle,
+      _ => 'Room #${widget.roomId}',
     };
 
     return Scaffold(
@@ -108,19 +157,26 @@ class _ChatViewState extends State<_ChatView> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.roomName),
-            Text(
-              [
-                'Room #${widget.roomId}',
-                if (onlineCount != null) '$onlineCount online',
-              ].join(' · '),
-              style: textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
+            Text(roomTitle, overflow: TextOverflow.ellipsis),
+            if (onlineCount != null)
+              Text(
+                // F3-R2: the presence-delta count is inherently approximate —
+                // this client may undercount (late join, backgrounding,
+                // cross-replica deltas) — so every surface carrying it must
+                // label it as an estimate.
+                '~$onlineCount online (estimate)',
+                style: textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
               ),
-            ),
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            tooltip: 'Room info',
+            onPressed: _openRoomInfo,
+          ),
           IconButton(
             icon: const Icon(Icons.copy_outlined),
             tooltip: 'Copy room ID to invite others',
