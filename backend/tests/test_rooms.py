@@ -7,6 +7,7 @@ ASGI with the `client` fixture, asserting status + body on every request.
 from uuid import uuid4
 
 from app.models.message import Message
+from app.models.room import Room, RoomKind
 
 
 async def _register(client, email=None, username=None, password="supersecret123"):
@@ -214,3 +215,108 @@ async def test_list_messages_respects_limit(client, db):
     )
     assert resp.status_code == 200
     assert len(resp.json()) == 2
+
+
+async def test_create_room_canonicalizes_free_text_name(client):
+    """F2-R2: 'Project Alpha!' is stored and returned as 'project-alpha'."""
+    _, email, _, password = await _register(client)
+    headers = await _auth_headers(client, email, password)
+
+    resp = await client.post("/rooms", json={"name": "Project Alpha!"}, headers=headers)
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["name"] == "project-alpha"
+
+
+async def test_create_room_duplicate_slug_returns_409(client):
+    """F2-R2: a canonical slug collision is a 409, never an auto-suffix."""
+    _, email1, _, password = await _register(client)
+    _, email2, _, _ = await _register(client)
+    h1 = await _auth_headers(client, email1, password)
+    h2 = await _auth_headers(client, email2, password)
+
+    first = await client.post("/rooms", json={"name": "Work"}, headers=h1)
+    assert first.status_code == 201
+    assert first.json()["name"] == "work"
+
+    # Same canonical slug from a different user, written differently.
+    for dup_name in ("work", "WORK", " Work! "):
+        dup = await client.post("/rooms", json={"name": dup_name}, headers=h2)
+        assert dup.status_code == 409, dup.text
+
+
+async def test_create_room_reserved_prefix_returns_422(client):
+    _, email, _, password = await _register(client)
+    headers = await _auth_headers(client, email, password)
+
+    # 'dm-' is reserved for DM auto-names (F2-R3); 'DM-Buddy' canonicalizes
+    # to 'dm-buddy', which must also be rejected.
+    for name in ("dm-buddy", "DM-Buddy"):
+        resp = await client.post("/rooms", json={"name": name}, headers=headers)
+        assert resp.status_code == 422, resp.text
+
+
+async def test_create_room_all_numeric_name_returns_422(client):
+    """F2-R2: the numeric-only space belongs to the id namespace."""
+    _, email, _, password = await _register(client)
+    headers = await _auth_headers(client, email, password)
+
+    resp = await client.post("/rooms", json={"name": "123"}, headers=headers)
+    assert resp.status_code == 422, resp.text
+
+
+async def test_create_room_empty_canonical_name_returns_422(client):
+    """F2-R2: a name with no ASCII alphanumeric canonicalizes to '' -> 422."""
+    _, email, _, password = await _register(client)
+    headers = await _auth_headers(client, email, password)
+
+    resp = await client.post("/rooms", json={"name": "!!!"}, headers=headers)
+    assert resp.status_code == 422, resp.text
+
+
+async def test_create_room_rejects_non_positive_capacity(client):
+    """F3-R3: capacity is validated gt=0 at create time (metadata only)."""
+    _, email, _, password = await _register(client)
+    headers = await _auth_headers(client, email, password)
+
+    for capacity in (0, -3):
+        resp = await client.post(
+            "/rooms", json={"name": "cap-room", "capacity": capacity}, headers=headers
+        )
+        assert resp.status_code == 422, resp.text
+
+
+async def test_get_room_by_name_resolves_canonical_slug(client):
+    """F2-R5: lookup canonicalizes input and works for a non-member."""
+    _, email1, _, password = await _register(client)
+    _, email2, _, _ = await _register(client)
+    h1 = await _auth_headers(client, email1, password)
+    h2 = await _auth_headers(client, email2, password)
+
+    room, _ = await _create_room(client, h1, name="Project Alpha!")
+
+    # Case-insensitive by construction; user2 is NOT a member.
+    resp = await client.get("/rooms/by-name/PROJECT-ALPHA", headers=h2)
+    assert resp.status_code == 200
+    assert resp.json()["id"] == room["id"]
+    assert resp.json()["name"] == "project-alpha"
+
+
+async def test_get_room_by_name_unknown_returns_404(client):
+    _, email, _, password = await _register(client)
+    headers = await _auth_headers(client, email, password)
+
+    resp = await client.get("/rooms/by-name/no-such-room", headers=headers)
+    assert resp.status_code == 404
+
+
+async def test_get_room_by_name_dm_slug_returns_404(client, db):
+    """F1-R5/F2-R5: DM names are never resolvable through alias lookup."""
+    _, email, _, password = await _register(client)
+    headers = await _auth_headers(client, email, password)
+
+    dm = Room(name="dm-5-12", kind=RoomKind.DM, created_by=None)
+    db.add(dm)
+    await db.commit()
+
+    resp = await client.get("/rooms/by-name/dm-5-12", headers=headers)
+    assert resp.status_code == 404
