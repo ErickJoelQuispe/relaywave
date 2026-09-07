@@ -383,6 +383,27 @@ class $RoomsTable extends Rooms with TableInfo<$RoomsTable, RoomRow> {
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _kindMeta = const VerificationMeta('kind');
+  @override
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('group'),
+  );
+  static const VerificationMeta _peerUsernameMeta = const VerificationMeta(
+    'peerUsername',
+  );
+  @override
+  late final GeneratedColumn<String> peerUsername = GeneratedColumn<String>(
+    'peer_username',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -395,7 +416,14 @@ class $RoomsTable extends Rooms with TableInfo<$RoomsTable, RoomRow> {
     requiredDuringInsert: true,
   );
   @override
-  List<GeneratedColumn> get $columns => [id, name, createdBy, createdAt];
+  List<GeneratedColumn> get $columns => [
+    id,
+    name,
+    createdBy,
+    kind,
+    peerUsername,
+    createdAt,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -423,6 +451,21 @@ class $RoomsTable extends Rooms with TableInfo<$RoomsTable, RoomRow> {
       context.handle(
         _createdByMeta,
         createdBy.isAcceptableOrUnknown(data['created_by']!, _createdByMeta),
+      );
+    }
+    if (data.containsKey('kind')) {
+      context.handle(
+        _kindMeta,
+        kind.isAcceptableOrUnknown(data['kind']!, _kindMeta),
+      );
+    }
+    if (data.containsKey('peer_username')) {
+      context.handle(
+        _peerUsernameMeta,
+        peerUsername.isAcceptableOrUnknown(
+          data['peer_username']!,
+          _peerUsernameMeta,
+        ),
       );
     }
     if (data.containsKey('created_at')) {
@@ -454,6 +497,14 @@ class $RoomsTable extends Rooms with TableInfo<$RoomsTable, RoomRow> {
         DriftSqlType.int,
         data['${effectivePrefix}created_by'],
       ),
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      peerUsername: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}peer_username'],
+      ),
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -471,11 +522,15 @@ class RoomRow extends DataClass implements Insertable<RoomRow> {
   final int id;
   final String name;
   final int? createdBy;
+  final String kind;
+  final String? peerUsername;
   final DateTime createdAt;
   const RoomRow({
     required this.id,
     required this.name,
     this.createdBy,
+    required this.kind,
+    this.peerUsername,
     required this.createdAt,
   });
   @override
@@ -485,6 +540,10 @@ class RoomRow extends DataClass implements Insertable<RoomRow> {
     map['name'] = Variable<String>(name);
     if (!nullToAbsent || createdBy != null) {
       map['created_by'] = Variable<int>(createdBy);
+    }
+    map['kind'] = Variable<String>(kind);
+    if (!nullToAbsent || peerUsername != null) {
+      map['peer_username'] = Variable<String>(peerUsername);
     }
     map['created_at'] = Variable<DateTime>(createdAt);
     return map;
@@ -497,6 +556,10 @@ class RoomRow extends DataClass implements Insertable<RoomRow> {
       createdBy: createdBy == null && nullToAbsent
           ? const Value.absent()
           : Value(createdBy),
+      kind: Value(kind),
+      peerUsername: peerUsername == null && nullToAbsent
+          ? const Value.absent()
+          : Value(peerUsername),
       createdAt: Value(createdAt),
     );
   }
@@ -510,6 +573,8 @@ class RoomRow extends DataClass implements Insertable<RoomRow> {
       id: serializer.fromJson<int>(json['id']),
       name: serializer.fromJson<String>(json['name']),
       createdBy: serializer.fromJson<int?>(json['createdBy']),
+      kind: serializer.fromJson<String>(json['kind']),
+      peerUsername: serializer.fromJson<String?>(json['peerUsername']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
     );
   }
@@ -520,6 +585,8 @@ class RoomRow extends DataClass implements Insertable<RoomRow> {
       'id': serializer.toJson<int>(id),
       'name': serializer.toJson<String>(name),
       'createdBy': serializer.toJson<int?>(createdBy),
+      'kind': serializer.toJson<String>(kind),
+      'peerUsername': serializer.toJson<String?>(peerUsername),
       'createdAt': serializer.toJson<DateTime>(createdAt),
     };
   }
@@ -528,11 +595,15 @@ class RoomRow extends DataClass implements Insertable<RoomRow> {
     int? id,
     String? name,
     Value<int?> createdBy = const Value.absent(),
+    String? kind,
+    Value<String?> peerUsername = const Value.absent(),
     DateTime? createdAt,
   }) => RoomRow(
     id: id ?? this.id,
     name: name ?? this.name,
     createdBy: createdBy.present ? createdBy.value : this.createdBy,
+    kind: kind ?? this.kind,
+    peerUsername: peerUsername.present ? peerUsername.value : this.peerUsername,
     createdAt: createdAt ?? this.createdAt,
   );
   RoomRow copyWithCompanion(RoomsCompanion data) {
@@ -540,6 +611,10 @@ class RoomRow extends DataClass implements Insertable<RoomRow> {
       id: data.id.present ? data.id.value : this.id,
       name: data.name.present ? data.name.value : this.name,
       createdBy: data.createdBy.present ? data.createdBy.value : this.createdBy,
+      kind: data.kind.present ? data.kind.value : this.kind,
+      peerUsername: data.peerUsername.present
+          ? data.peerUsername.value
+          : this.peerUsername,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
     );
   }
@@ -550,13 +625,16 @@ class RoomRow extends DataClass implements Insertable<RoomRow> {
           ..write('id: $id, ')
           ..write('name: $name, ')
           ..write('createdBy: $createdBy, ')
+          ..write('kind: $kind, ')
+          ..write('peerUsername: $peerUsername, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, name, createdBy, createdAt);
+  int get hashCode =>
+      Object.hash(id, name, createdBy, kind, peerUsername, createdAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -564,6 +642,8 @@ class RoomRow extends DataClass implements Insertable<RoomRow> {
           other.id == this.id &&
           other.name == this.name &&
           other.createdBy == this.createdBy &&
+          other.kind == this.kind &&
+          other.peerUsername == this.peerUsername &&
           other.createdAt == this.createdAt);
 }
 
@@ -571,17 +651,23 @@ class RoomsCompanion extends UpdateCompanion<RoomRow> {
   final Value<int> id;
   final Value<String> name;
   final Value<int?> createdBy;
+  final Value<String> kind;
+  final Value<String?> peerUsername;
   final Value<DateTime> createdAt;
   const RoomsCompanion({
     this.id = const Value.absent(),
     this.name = const Value.absent(),
     this.createdBy = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.peerUsername = const Value.absent(),
     this.createdAt = const Value.absent(),
   });
   RoomsCompanion.insert({
     this.id = const Value.absent(),
     required String name,
     this.createdBy = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.peerUsername = const Value.absent(),
     required DateTime createdAt,
   }) : name = Value(name),
        createdAt = Value(createdAt);
@@ -589,12 +675,16 @@ class RoomsCompanion extends UpdateCompanion<RoomRow> {
     Expression<int>? id,
     Expression<String>? name,
     Expression<int>? createdBy,
+    Expression<String>? kind,
+    Expression<String>? peerUsername,
     Expression<DateTime>? createdAt,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (name != null) 'name': name,
       if (createdBy != null) 'created_by': createdBy,
+      if (kind != null) 'kind': kind,
+      if (peerUsername != null) 'peer_username': peerUsername,
       if (createdAt != null) 'created_at': createdAt,
     });
   }
@@ -603,12 +693,16 @@ class RoomsCompanion extends UpdateCompanion<RoomRow> {
     Value<int>? id,
     Value<String>? name,
     Value<int?>? createdBy,
+    Value<String>? kind,
+    Value<String?>? peerUsername,
     Value<DateTime>? createdAt,
   }) {
     return RoomsCompanion(
       id: id ?? this.id,
       name: name ?? this.name,
       createdBy: createdBy ?? this.createdBy,
+      kind: kind ?? this.kind,
+      peerUsername: peerUsername ?? this.peerUsername,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -625,6 +719,12 @@ class RoomsCompanion extends UpdateCompanion<RoomRow> {
     if (createdBy.present) {
       map['created_by'] = Variable<int>(createdBy.value);
     }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (peerUsername.present) {
+      map['peer_username'] = Variable<String>(peerUsername.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -637,6 +737,8 @@ class RoomsCompanion extends UpdateCompanion<RoomRow> {
           ..write('id: $id, ')
           ..write('name: $name, ')
           ..write('createdBy: $createdBy, ')
+          ..write('kind: $kind, ')
+          ..write('peerUsername: $peerUsername, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -857,12 +959,16 @@ typedef $$RoomsTableCreateCompanionBuilder = RoomsCompanion Function({
   Value<int> id,
   required String name,
   Value<int?> createdBy,
+  Value<String> kind,
+  Value<String?> peerUsername,
   required DateTime createdAt,
 });
 typedef $$RoomsTableUpdateCompanionBuilder = RoomsCompanion Function({
   Value<int> id,
   Value<String> name,
   Value<int?> createdBy,
+  Value<String> kind,
+  Value<String?> peerUsername,
   Value<DateTime> createdAt,
 });
 
@@ -886,6 +992,16 @@ class $$RoomsTableFilterComposer extends Composer<_$AppDatabase, $RoomsTable> {
 
   ColumnFilters<int> get createdBy => $composableBuilder(
     column: $table.createdBy,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get peerUsername => $composableBuilder(
+    column: $table.peerUsername,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -919,6 +1035,16 @@ class $$RoomsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get peerUsername => $composableBuilder(
+    column: $table.peerUsername,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -942,6 +1068,14 @@ class $$RoomsTableAnnotationComposer
 
   GeneratedColumn<int> get createdBy =>
       $composableBuilder(column: $table.createdBy, builder: (column) => column);
+
+  GeneratedColumn<String> get kind =>
+      $composableBuilder(column: $table.kind, builder: (column) => column);
+
+  GeneratedColumn<String> get peerUsername => $composableBuilder(
+    column: $table.peerUsername,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
@@ -978,11 +1112,15 @@ class $$RoomsTableTableManager
                 Value<int> id = const Value.absent(),
                 Value<String> name = const Value.absent(),
                 Value<int?> createdBy = const Value.absent(),
+                Value<String> kind = const Value.absent(),
+                Value<String?> peerUsername = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
               }) => RoomsCompanion(
                 id: id,
                 name: name,
                 createdBy: createdBy,
+                kind: kind,
+                peerUsername: peerUsername,
                 createdAt: createdAt,
               ),
           createCompanionCallback:
@@ -990,11 +1128,15 @@ class $$RoomsTableTableManager
                 Value<int> id = const Value.absent(),
                 required String name,
                 Value<int?> createdBy = const Value.absent(),
+                Value<String> kind = const Value.absent(),
+                Value<String?> peerUsername = const Value.absent(),
                 required DateTime createdAt,
               }) => RoomsCompanion.insert(
                 id: id,
                 name: name,
                 createdBy: createdBy,
+                kind: kind,
+                peerUsername: peerUsername,
                 createdAt: createdAt,
               ),
           withReferenceMapper: (p0) => p0

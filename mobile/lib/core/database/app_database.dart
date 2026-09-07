@@ -20,6 +20,10 @@ class Rooms extends Table {
   IntColumn get id => integer()();
   TextColumn get name => text()();
   IntColumn get createdBy => integer().nullable().named('created_by')();
+  // F3-R4: kind + peer_username must survive a relaunch so the DM/group
+  // list split and DM titles render from cache before any network refresh.
+  TextColumn get kind => text().withDefault(const Constant('group'))();
+  TextColumn get peerUsername => text().nullable().named('peer_username')();
   DateTimeColumn get createdAt => dateTime().named('created_at')();
 
   @override
@@ -32,19 +36,35 @@ class AppDatabase extends _$AppDatabase {
   // compiled to WebAssembly plus a background worker instead of a native file.
   // Both assets are downloaded into mobile/web/ (matching the pinned `drift`
   // version in pubspec.lock) since they aren't fetched at build time.
-  AppDatabase()
+  //
+  // `executor` is injectable for tests (e.g. an in-memory sqlite database);
+  // production always uses driftDatabase(...).
+  AppDatabase({QueryExecutor? executor})
     : super(
-        driftDatabase(
-          name: 'relaywave',
-          web: DriftWebOptions(
-            sqlite3Wasm: Uri.parse('sqlite3.wasm'),
-            driftWorker: Uri.parse('drift_worker.js'),
-          ),
-        ),
+        executor ??
+            driftDatabase(
+              name: 'relaywave',
+              web: DriftWebOptions(
+                sqlite3Wasm: Uri.parse('sqlite3.wasm'),
+                driftWorker: Uri.parse('drift_worker.js'),
+              ),
+            ),
       );
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            // v1 rows are existing group rooms; backfill kind='group' and
+            // leave peer_username null (DMs did not exist before v2).
+            await m.addColumn(rooms, rooms.kind);
+            await m.addColumn(rooms, rooms.peerUsername);
+          }
+        },
+      );
 
   Future<List<MessageRow>> recentMessages(int roomId, {int limit = 100}) =>
       (select(messages)

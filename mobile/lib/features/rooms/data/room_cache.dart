@@ -29,6 +29,8 @@ final class DriftRoomCache implements RoomCache {
         name: row.name,
         createdBy: row.createdBy,
         createdAt: row.createdAt,
+        kind: row.kind,
+        peerUsername: row.peerUsername,
       );
 
   RoomRow _toRow(Room room) => RoomRow(
@@ -36,5 +38,7 @@ final class DriftRoomCache implements RoomCache {
         name: room.name,
         createdBy: room.createdBy,
         createdAt: room.createdAt,
+        kind: room.kind,
+        peerUsername: room.peerUsername,
       );
 }
