@@ -81,7 +81,7 @@ GoRouter buildRouter(AuthBloc authBloc) {
               // title from server detail (or the cache) itself.
               return CustomTransitionPage(
                 key: state.pageKey,
-                child: ChatScreen(roomId: roomId),
+                child: ChatScreen(key: ValueKey(roomId), roomId: roomId),
                 transitionsBuilder:
                     (context, animation, secondaryAnimation, child) =>
                         SharedAxisTransition(
