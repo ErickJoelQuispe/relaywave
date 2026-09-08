@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -94,6 +95,16 @@ class _ChatViewState extends State<_ChatView> {
     };
   }
 
+  Future<void> _copyRoomId() async {
+    await Clipboard.setData(ClipboardData(text: '${widget.roomId}'));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text('Room ID ${widget.roomId} copied')),
+      );
+  }
+
   Future<void> _openRoomInfo() async {
     // F3-R1: every open fetches fresh detail from the server.
     await context.read<RoomInfoCubit>().refresh();
@@ -165,6 +176,11 @@ class _ChatViewState extends State<_ChatView> {
             icon: const Icon(Icons.info_outline),
             tooltip: 'Room info',
             onPressed: _openRoomInfo,
+          ),
+          IconButton(
+            icon: const Icon(Icons.copy_outlined),
+            tooltip: 'Copy room ID to invite others',
+            onPressed: _copyRoomId,
           ),
         ],
       ),

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -60,14 +59,6 @@ class _RoomsPaneState extends State<RoomsPane> {
     );
   }
 
-  Future<void> _copyRoomName(String name) async {
-    await Clipboard.setData(ClipboardData(text: name));
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text('Room name "$name" copied')));
-  }
-
   Widget _buildBody(RoomsState state) {
     return switch (state) {
       RoomsInitial() || RoomsLoadInProgress() =>
@@ -123,14 +114,14 @@ class _RoomsPaneState extends State<RoomsPane> {
     if (dms.isNotEmpty) {
       children.add(const _SectionHeader('Direct messages'));
       for (final room in dms) {
-        children.add(wrap(tileIndex++, _roomTile(room, shareable: false)));
+        children.add(wrap(tileIndex++, _roomTile(room)));
       }
     }
     if (groups.isNotEmpty && dms.isNotEmpty) {
       children.add(const _SectionHeader('Group rooms'));
     }
     for (final room in groups) {
-      children.add(wrap(tileIndex++, _roomTile(room, shareable: true)));
+      children.add(wrap(tileIndex++, _roomTile(room)));
     }
 
     return Column(
@@ -147,19 +138,10 @@ class _RoomsPaneState extends State<RoomsPane> {
     );
   }
 
-  Widget _roomTile(Room room, {required bool shareable}) {
+  Widget _roomTile(Room room) {
     return ListTile(
       title: Text(room.displayTitle),
       onTap: () => context.go('/rooms/${room.id}'),
-      // The canonical slug IS the shareable handle (F2-R5) — but only for
-      // group rooms; a DM's internal name is not a joinable address.
-      trailing: !shareable
-          ? null
-          : IconButton(
-              icon: const Icon(Icons.copy_outlined, size: 18),
-              tooltip: 'Copy room name to invite others',
-              onPressed: () => _copyRoomName(room.name),
-            ),
     );
   }
 
